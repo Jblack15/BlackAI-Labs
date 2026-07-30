@@ -40,6 +40,12 @@ export function Header() {
           >
             Buyers
           </Link>
+          <Link
+            to="/settings"
+            className="text-sm font-medium text-gray-300 transition-colors hover:text-white"
+          >
+            Settings
+          </Link>
           <div className="group relative">
             <button className="flex items-center gap-1 text-sm font-medium text-gray-300 transition-colors hover:text-white">
               Sell Your Home

@@ -90,6 +90,12 @@ export function Footer() {
             >
               Buyer Network →
             </Link>
+            <Link
+              to="/settings"
+              className="mt-2 block text-sm text-gray-400 transition-colors hover:text-gold-500"
+            >
+              Settings →
+            </Link>
           </div>
         </div>
         <div className="mt-10 border-t border-navy-700 pt-6 text-center text-sm text-gray-500">

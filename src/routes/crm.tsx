@@ -313,7 +313,89 @@ const updateLeadStatus = createServerFn({ method: "POST" })
       await sql`
         UPDATE leads SET status = ${data.status} WHERE id = ${data.id}
       `;
+
+      // Send SMS on certain status changes
+      const leadRows = await sql`
+        SELECT full_name, phone, property_address, property_city, property_state
+        FROM leads WHERE id = ${data.id}
+      ` as { full_name: string; phone: string | null; property_address: string; property_city: string; property_state: string }[];
+
+      const lead = leadRows[0];
+      if (lead?.phone) {
+        const { sendSms } = await import("~/lib/sms");
+        const address = `${lead.property_address}, ${lead.property_city}, ${lead.property_state}`;
+        let smsMessage = "";
+
+        switch (data.status) {
+          case "contacted":
+            smsMessage = `Hi ${lead.full_name}, this is DealFlow AI. We'd like to discuss your property at ${address}. When's a good time to talk?`;
+            break;
+          case "appointment":
+            smsMessage = `Great news ${lead.full_name}! Your appointment is confirmed. We'll see you soon to discuss your cash offer for ${address}.`;
+            break;
+          case "offer":
+            smsMessage = `Hi ${lead.full_name}, we've reviewed your property at ${address} and prepared a cash offer. Check your email or call us to discuss.`;
+            break;
+        }
+
+        if (smsMessage) {
+          await sendSms(lead.phone, smsMessage, data.id);
+        }
+      }
+
       return { success: true as const };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      return { success: false as const, error: msg };
+    }
+  });
+
+const fetchLeadSmsLogs = createServerFn({ method: "GET" })
+  .validator((data: unknown) => {
+    const d = data as { leadId: string };
+    if (!d.leadId) throw new Error("leadId is required");
+    return d;
+  })
+  .handler(async ({ data }) => {
+    try {
+      const { sql } = await import("~/db");
+      const rows = await sql`
+        SELECT id, lead_id, to_phone, message, status, twilio_sid, created_at
+        FROM sms_logs
+        WHERE lead_id = ${data.leadId}
+        ORDER BY created_at DESC
+        LIMIT 5
+      ` as { id: string; lead_id: string; to_phone: string; message: string; status: string; twilio_sid: string | null; created_at: string }[];
+      return rows.map((r) => ({ ...r, created_at: String(r.created_at) }));
+    } catch {
+      return [];
+    }
+  });
+
+const sendManualSms = createServerFn({ method: "POST" })
+  .validator((data: unknown) => {
+    const d = data as { leadId: string; message: string };
+    if (!d.leadId || !d.message) throw new Error("leadId and message are required");
+    return d;
+  })
+  .handler(async ({ data }) => {
+    try {
+      const { sql } = await import("~/db");
+      const leadRows = await sql`
+        SELECT full_name, phone FROM leads WHERE id = ${data.leadId}
+      ` as { full_name: string; phone: string | null }[];
+
+      const lead = leadRows[0];
+      if (!lead?.phone) {
+        return { success: false as const, error: "Lead has no phone number" };
+      }
+
+      const { sendSms } = await import("~/lib/sms");
+      const result = await sendSms(lead.phone, data.message, data.leadId);
+      if (result.success) {
+        return { success: true as const, sid: result.sid };
+      }
+      return { success: false as const, error: result.error || "SMS failed" };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Unknown error";
       return { success: false as const, error: msg };
@@ -383,15 +465,57 @@ function LeadCard({
   );
 }
 
+interface SmsLogEntry {
+  id: string;
+  lead_id: string;
+  to_phone: string;
+  message: string;
+  status: string;
+  twilio_sid: string | null;
+  created_at: string;
+}
+
 function LeadDetailModal({
   lead,
   onClose,
   onStatusChange,
+  smsLogs,
+  onSendSms,
+  smsSending,
+  smsResult,
 }: {
   lead: Lead;
   onClose: () => void;
   onStatusChange: (id: string, status: PipelineStage) => void;
+  smsLogs: SmsLogEntry[];
+  onSendSms: (leadId: string, message: string) => void;
+  smsSending: boolean;
+  smsResult: { success: boolean; error?: string } | null;
 }) {
+  const [smsMessage, setSmsMessage] = useState("");
+
+  // Pre-populate SMS message based on lead status
+  const defaultMessages: Record<string, string> = {
+    new: `Hi ${lead.full_name}, thanks for your interest in selling your property at ${lead.property_address}. We'd love to learn more. When's a good time to chat?`,
+    contacted: `Hi ${lead.full_name}, following up from DealFlow AI about your property at ${lead.property_address}. Let us know if you have any questions!`,
+    qualified: `Hi ${lead.full_name}, great news — your property at ${lead.property_address} qualifies for a cash offer. Let's discuss the next steps!`,
+    appointment: `Hi ${lead.full_name}, just a reminder about your upcoming appointment to discuss your cash offer for ${lead.property_address}. Looking forward to it!`,
+    offer: `Hi ${lead.full_name}, following up on the cash offer we prepared for your property at ${lead.property_address}. Have you had a chance to review it?`,
+    contract: `Hi ${lead.full_name}, your contract for ${lead.property_address} is moving forward. We'll keep you updated on the closing process!`,
+    closed: `Hi ${lead.full_name}, congratulations on closing the sale of ${lead.property_address}! Thank you for choosing DealFlow AI.`,
+    dead: "",
+  };
+
+  // Init message when modal opens
+  useEffect(() => {
+    setSmsMessage(defaultMessages[lead.status] || "");
+  }, [lead.id, lead.status]);
+
+  const handleSendSms = () => {
+    if (!smsMessage.trim()) return;
+    onSendSms(lead.id, smsMessage.trim());
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div
@@ -469,6 +593,76 @@ function LeadDetailModal({
             </select>
           </div>
 
+          {/* Send SMS */}
+          <div className="rounded-lg border border-navy-700 bg-navy-900/50 p-4">
+            <h3 className="mb-3 text-sm font-semibold text-white">Send SMS</h3>
+            {!lead.phone ? (
+              <p className="text-sm text-gray-500">No phone number on file for this lead.</p>
+            ) : (
+              <>
+                <textarea
+                  rows={3}
+                  value={smsMessage}
+                  onChange={(e) => setSmsMessage(e.target.value)}
+                  placeholder="Type your SMS message..."
+                  className="w-full rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-gold-500 focus:outline-none focus:ring-1 focus:ring-gold-500"
+                />
+                <div className="mt-2 flex items-center justify-between">
+                  <span className="text-xs text-gray-500">
+                    Sending to: <span className="text-gold-400">{lead.phone}</span>
+                  </span>
+                  <button
+                    onClick={handleSendSms}
+                    disabled={smsSending || !smsMessage.trim()}
+                    className="rounded-lg bg-gold-500 px-4 py-2 text-sm font-semibold text-navy-900 transition-colors hover:bg-gold-400 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {smsSending ? "Sending..." : "Send SMS"}
+                  </button>
+                </div>
+                {smsResult && (
+                  <div
+                    className={`mt-2 rounded-lg px-3 py-2 text-xs ${
+                      smsResult.success
+                        ? "bg-green-500/10 border border-green-500/30 text-green-400"
+                        : "bg-red-500/10 border border-red-500/30 text-red-400"
+                    }`}
+                  >
+                    {smsResult.success ? "SMS sent successfully!" : smsResult.error || "Failed to send SMS"}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* SMS Log */}
+            {smsLogs.length > 0 && (
+              <div className="mt-4 space-y-2">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+                  Recent SMS
+                </h4>
+                {smsLogs.map((log) => (
+                  <div
+                    key={log.id}
+                    className="rounded-lg border border-navy-700 bg-navy-800 p-3 text-xs"
+                  >
+                    <div className="flex items-center justify-between text-gray-500">
+                      <span
+                        className={`inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                          log.status === "sent"
+                            ? "bg-green-500/20 text-green-400"
+                            : "bg-red-500/20 text-red-400"
+                        }`}
+                      >
+                        {log.status}
+                      </span>
+                      <span>{new Date(log.created_at).toLocaleString()}</span>
+                    </div>
+                    <p className="mt-1 text-gray-300">{log.message}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Details Grid */}
           <div>
             <h3 className="mb-3 text-sm font-semibold text-white">Lead Details</h3>
@@ -495,29 +689,6 @@ function LeadDetailModal({
               </p>
             </div>
           )}
-
-          {/* Activity Log Placeholder */}
-          <div>
-            <h3 className="mb-2 text-sm font-semibold text-white">Activity Log</h3>
-            <div className="rounded-lg border border-dashed border-navy-700 bg-navy-900/30 p-6 text-center text-sm text-gray-500">
-              <svg
-                className="mx-auto mb-2 h-8 w-8 text-navy-700"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={1.5}
-                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              Activity tracking coming in Phase 3b.
-              <br />
-              Notes, calls, emails, and status changes will appear here.
-            </div>
-          </div>
         </div>
 
         {/* Footer */}
@@ -744,6 +915,9 @@ function CrmPage() {
   const [viewMode, setViewMode] = useState<ViewMode>("board");
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [loading, setLoading] = useState(true);
+  const [smsLogs, setSmsLogs] = useState<SmsLogEntry[]>([]);
+  const [smsSending, setSmsSending] = useState(false);
+  const [smsResult, setSmsResult] = useState<{ success: boolean; error?: string } | null>(null);
 
   // Load leads from server (falls back to mock data)
   useEffect(() => {
@@ -761,6 +935,19 @@ function CrmPage() {
     return () => { cancelled = true; };
   }, []);
 
+  // Load SMS logs when a lead is selected
+  useEffect(() => {
+    if (selectedLead) {
+      setSmsLogs([]);
+      setSmsResult(null);
+      fetchLeadSmsLogs({ data: { leadId: selectedLead.id } })
+        .then((data) => {
+          if (data) setSmsLogs(data);
+        })
+        .catch(() => {});
+    }
+  }, [selectedLead?.id]);
+
   const handleStatusChange = (id: string, newStatus: PipelineStage) => {
     setLeads((prev) =>
       prev.map((l) => (l.id === id ? { ...l, status: newStatus } : l))
@@ -769,8 +956,26 @@ function CrmPage() {
     setSelectedLead((prev) =>
       prev?.id === id ? { ...prev, status: newStatus } : prev
     );
-    // Persist to DB (fire-and-forget)
+    // Persist to DB (fire-and-forget — SMS is handled server-side)
     updateLeadStatus({ data: { id, status: newStatus } }).catch(() => {});
+  };
+
+  const handleSendSms = async (leadId: string, message: string) => {
+    setSmsSending(true);
+    setSmsResult(null);
+    try {
+      const result = await sendManualSms({ data: { leadId, message } });
+      setSmsResult({ success: result.success, error: result.success ? undefined : result.error });
+      // Reload SMS logs
+      if (result.success) {
+        const logs = await fetchLeadSmsLogs({ data: { leadId } });
+        if (logs) setSmsLogs(logs);
+      }
+    } catch {
+      setSmsResult({ success: false, error: "Network error" });
+    } finally {
+      setSmsSending(false);
+    }
   };
 
   const pipelineCounts = useMemo(() => {
@@ -889,6 +1094,10 @@ function CrmPage() {
           lead={selectedLead}
           onClose={() => setSelectedLead(null)}
           onStatusChange={handleStatusChange}
+          smsLogs={smsLogs}
+          onSendSms={handleSendSms}
+          smsSending={smsSending}
+          smsResult={smsResult}
         />
       )}
     </div>

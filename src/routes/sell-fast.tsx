@@ -33,14 +33,24 @@ const submitPpcLead = createServerFn({ method: "POST" })
           ${data.notes || null}, ${'ppc_sell_fast'},
           ${data.utm_source || null}, ${data.utm_medium || null}, ${data.utm_campaign || null}
         )
-        RETURNING id, full_name, property_address
+        RETURNING id, full_name, phone, property_address
       `;
-      const lead = result[0] as { id: string; full_name: string; property_address: string } | undefined;
+      const lead = result[0] as { id: string; full_name: string; phone: string | null; property_address: string } | undefined;
       if (lead) {
         await sql`
           INSERT INTO notifications (type, title, body, lead_id)
           VALUES ('new_lead', ${'PPC Lead: ' + lead.full_name}, ${lead.full_name + ' — ' + lead.property_address}, ${lead.id})
         `;
+
+        // Auto-SMS: send confirmation if phone provided
+        if (lead.phone) {
+          const { sendSms } = await import("~/lib/sms");
+          await sendSms(
+            lead.phone,
+            `Hi ${lead.full_name}, thanks for reaching out to DealFlow AI! We received your property details for ${lead.property_address} and will send you a cash offer within 24 hours. Reply STOP to opt out.`,
+            lead.id,
+          );
+        }
       }
       return { success: true as const };
     } catch {
