@@ -5,9 +5,12 @@ export function Header() {
     <header className="sticky top-0 z-50 border-b border-navy-700 bg-navy-900/95 backdrop-blur supports-[backdrop-filter]:bg-navy-900/80">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
         <Link to="/" className="flex items-center gap-2">
-          <span className="text-xl font-bold text-white">
-            DealFlow<span className="text-gold-500">AI</span>
-          </span>
+          <img
+            src="/logo-wordmark.png"
+            alt="DealFlow AI"
+            className="h-9 w-auto"
+            style={{ maxWidth: "160px" }}
+          />
         </Link>
         <nav className="hidden items-center gap-6 md:flex">
           <Link

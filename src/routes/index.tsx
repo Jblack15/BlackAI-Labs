@@ -53,6 +53,13 @@ function Home() {
               How It Works
             </a>
           </div>
+          <div className="mt-12">
+            <img
+              src="/hero-banner.png"
+              alt="DealFlow AI — Sell Your House Fast For Cash"
+              className="mx-auto w-full max-w-3xl rounded-xl shadow-2xl shadow-navy-950/50"
+            />
+          </div>
         </div>
       </section>
 
