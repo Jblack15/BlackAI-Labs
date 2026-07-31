@@ -2,7 +2,7 @@
 import BaseLayout from "../layouts/BaseLayout.astro";
 
 const plans = [
-  { name: "Starter", monthly: 99, description: "For small fleets getting started with automation.", cta: "Start Free Trial", style: "btn-secondary", features: ["Up to 50 claims/month", "AI damage analysis", "Basic estimate generation", "Email support"] },
+  { name: "Starter", monthly: 99, description: "For small fleets getting started with automation.", cta: "Start Free Trial", style: "btn-secondary", features: ["Up to 50 claims/month", "AI damage analysis", "Basic estimate generation", "Email support"], missing: ["No advanced analytics", "No claim tracking dashboard", "No API access", "No priority support"] },
   { name: "Professional", monthly: 249, description: "For growing fleets that need advanced features.", cta: "Subscribe Now", style: "btn-primary", popular: true, features: ["Up to 200 claims/month", "Advanced AI analysis", "Full estimate generation", "Claim tracking dashboard", "Priority support"] },
   { name: "Enterprise", monthly: 499, description: "For large fleets with custom requirements.", cta: "Contact Sales", style: "btn-secondary", features: ["Unlimited claims", "Custom AI model training", "API access", "Dedicated account manager", "SLA guarantee"] },
 ];
@@ -17,16 +17,72 @@ const faqs = [
   ["Do you offer annual billing?", "Yes. Annual billing saves 20%—you pay for 10 months and get 12 months of service."],
 ];
 ---
-<BaseLayout title="Pricing" description="Flexible FleetClaim AI pricing for fleet claims management, AI damage analysis, repair estimates, and claims automation.">
+
+<BaseLayout title="Pricing" description="Flexible FleetClaim AI pricing for fleet claims management, AI damage analysis, repair estimates, and claims automation. Start with a 14-day free trial.">
   <section class="section"><div class="section-inner">
-    <div class="text-center mb-10"><span class="badge mb-4">Pricing</span><h1 class="heading-1 mb-4">Simple, transparent pricing</h1><p class="body-large max-w-2xl mx-auto">Choose the plan that fits your fleet. All plans include a 14-day free trial.</p></div>
-    <div class="flex justify-center mb-12"><div class="inline-flex rounded-full border border-navy-200 dark:border-navy-700 p-1 bg-navy-50 dark:bg-navy-900" role="group" aria-label="Billing frequency"><button id="monthly" class="billing-toggle rounded-full px-5 py-2 text-sm font-semibold bg-white dark:bg-navy-700 text-navy-900 dark:text-white shadow-sm" aria-pressed="true">Monthly</button><button id="annual" class="billing-toggle rounded-full px-5 py-2 text-sm font-semibold text-navy-500 dark:text-navy-300" aria-pressed="false">Annual <span class="text-electric-500">Save 20%</span></button></div></div>
+    <div class="text-center mb-10"><span class="badge mb-4">Pricing</span><h1 class="heading-1 mb-4">Simple, transparent pricing</h1><p class="body-large max-w-2xl mx-auto">Choose the plan that fits your fleet. All plans include a 14-day free trial — no credit card required.</p></div>
+    <div class="flex justify-center mb-12"><div class="inline-flex rounded-full border border-navy-200 dark:border-navy-700 p-1 bg-navy-50 dark:bg-navy-900" role="group" aria-label="Billing frequency"><button id="monthly" class="billing-toggle rounded-full px-5 py-2 text-sm font-semibold bg-white dark:bg-navy-700 text-navy-900 dark:text-white shadow-sm" aria-pressed="true">Monthly</button><button id="annual" class="billing-toggle rounded-full px-5 py-2 text-sm font-semibold text-navy-500 dark:text-navy-300" aria-pressed="false">Annual <span class="text-electric-500 font-bold">Save 20%</span></button></div></div>
     <div class="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-      {plans.map((plan) => <div class={`card p-8 flex flex-col relative ${plan.popular ? "ring-2 ring-electric-500" : ""}`}>{plan.popular && <span class="badge absolute -top-4 left-1/2 -translate-x-1/2 bg-electric-500 text-white">Most Popular</span>}<div class="mb-6"><h2 class="text-lg font-semibold text-navy-900 dark:text-white mb-2">{plan.name}</h2><p class="text-sm text-navy-500 dark:text-navy-400">{plan.description}</p></div><div class="mb-6"><span class="plan-price text-5xl font-extrabold text-navy-950 dark:text-white" data-monthly={plan.monthly}>${plan.monthly}</span><span class="text-navy-500 dark:text-navy-400">/month</span><p class="annual-note hidden text-xs text-electric-600 dark:text-electric-400 mt-1">Billed annually</p></div><ul class="space-y-3 mb-8 flex-1">{plan.features.map((feature) => <li class="flex items-start gap-3 text-sm text-navy-600 dark:text-navy-300"><span class="text-electric-500 font-bold">✓</span>{feature}</li>)}</ul><a href={`/contact?plan=${plan.name.toLowerCase()}`} class={`${plan.style} w-full text-center`}>{plan.cta}</a></div>)}
+      {plans.map((plan) => (
+        <div class={`card p-8 flex flex-col relative ${plan.popular ? "ring-2 ring-electric-500 shadow-xl shadow-electric-500/10 scale-[1.02]" : ""}`}>
+          {plan.popular && (
+            <div class="absolute -top-[2px] left-4 right-4">
+              <div class="mx-auto flex h-8 items-center justify-center rounded-b-lg bg-electric-500 text-xs font-bold tracking-wide text-white shadow-md">
+                ⭐ MOST POPULAR
+              </div>
+              <div class="absolute -left-[2px] top-7 h-2 w-[2px] bg-electric-600 rounded-bl"></div>
+              <div class="absolute -right-[2px] top-7 h-2 w-[2px] bg-electric-600 rounded-br"></div>
+            </div>
+          )}
+          <div class={`mb-6 ${plan.popular ? "mt-4" : ""}`}>
+            <h2 class="text-lg font-semibold text-navy-900 dark:text-white mb-2">{plan.name}</h2>
+            <p class="text-sm text-navy-500 dark:text-navy-400">{plan.description}</p>
+            {plan.popular && <p class="mt-2 text-xs font-medium text-electric-600 dark:text-electric-400">Includes everything you need to automate your claims workflow</p>}
+          </div>
+          <div class="mb-6">
+            <span class="plan-price text-5xl font-extrabold text-navy-950 dark:text-white" data-monthly={plan.monthly}>${plan.monthly}</span>
+            <span class="text-navy-500 dark:text-navy-400">/month</span>
+            <p class="annual-note hidden text-xs text-electric-600 dark:text-electric-400 mt-1">Billed annually</p>
+          </div>
+          <ul class="space-y-3 mb-6 flex-1">
+            {plan.features.map((feature) => (
+              <li class="flex items-start gap-3 text-sm text-navy-600 dark:text-navy-300"><span class="text-electric-500 font-bold shrink-0">✓</span>{feature}</li>
+            ))}
+            {plan.name === "Starter" && (
+              <li class="mt-4 border-t border-navy-100 pt-3 dark:border-navy-800">
+                <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-navy-400 dark:text-navy-500">What you're missing:</p>
+                <ul class="space-y-2">
+                  {plan.missing?.map((item) => (
+                    <li class="flex items-start gap-3 text-sm text-navy-400 dark:text-navy-500"><span class="text-navy-300 font-bold shrink-0 dark:text-navy-600">—</span>{item}</li>
+                  ))}
+                </ul>
+              </li>
+            )}
+          </ul>
+          <a href={`/contact?plan=${plan.name.toLowerCase()}`} class={`${plan.style} w-full text-center`}>{plan.cta}</a>
+        </div>
+      ))}
     </div>
     <p class="text-center mt-8 text-sm text-navy-400 dark:text-navy-500">Plans are tailored with you during your demo. Questions? <a class="link" href="mailto:fleetclaim-ai-27b8975b@ctomail.io">Contact our team</a>.</p>
     <div class="mt-24"><div class="text-center mb-10"><span class="badge mb-4">Compare plans</span><h2 class="heading-2">Everything you need to move faster</h2></div><div class="overflow-x-auto card"><table class="w-full min-w-[680px] text-left text-sm"><thead class="bg-navy-50 dark:bg-navy-800/60"><tr><th class="p-5 font-semibold">Features</th><th class="p-5 font-semibold">Starter</th><th class="p-5 font-semibold text-electric-600 dark:text-electric-400">Professional</th><th class="p-5 font-semibold">Enterprise</th></tr></thead><tbody>{comparison.map((row) => <tr class="border-t border-navy-100 dark:border-navy-800"><th class="p-5 font-medium text-navy-700 dark:text-navy-200">{row[0]}</th>{row.slice(1).map((value) => <td class="p-5 text-navy-500 dark:text-navy-400">{value}</td>)}</tr>)}</tbody></table></div></div>
     <div class="mt-24 max-w-3xl mx-auto"><div class="text-center mb-10"><span class="badge mb-4">FAQ</span><h2 class="heading-2">Questions, answered</h2></div><div class="space-y-3">{faqs.map(([question, answer]) => <details class="card p-5 group"><summary class="cursor-pointer list-none flex justify-between gap-4 font-semibold text-navy-900 dark:text-white">{question}<span class="text-electric-500 group-open:rotate-45 transition-transform">+</span></summary><p class="mt-3 text-sm leading-relaxed text-navy-600 dark:text-navy-300">{answer}</p></details>)}</div></div>
+    <!-- Trust badges on pricing -->
+    <div class="mt-20 border-t border-navy-200/60 pt-12 dark:border-navy-800/60">
+      <div class="flex flex-wrap items-center justify-center gap-x-10 gap-y-4">
+        {[
+          { icon: "🎯", label: "99.7% Accuracy" },
+          { icon: "🛡️", label: "SOC 2 Compliant" },
+          { icon: "🔐", label: "256-bit Encryption" },
+          { icon: "🎁", label: "14-Day Free Trial" },
+          { icon: "💳", label: "No Credit Card Required" },
+        ].map((badge) => (
+          <div class="flex items-center gap-2 rounded-lg border border-navy-200/70 bg-white px-4 py-2.5 text-sm font-semibold text-navy-700 shadow-sm dark:border-navy-700/70 dark:bg-navy-900 dark:text-navy-300">
+            <span aria-hidden="true">{badge.icon}</span>
+            {badge.label}
+          </div>
+        ))}
+      </div>
+    </div>
   </div></section>
 </BaseLayout>
 <script>
