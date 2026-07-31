@@ -1,9 +1,9 @@
 ---
 import { getCollection, render } from 'astro:content';
 import BaseLayout from '../../layouts/BaseLayout.astro';
-export async function getStaticPaths() { return (await getCollection('blog')).map(post => ({ params: { slug: post.id }, props: { post } })); }
+export async function getStaticPaths() { return (await getCollection('blog')).map(post => ({ params: { slug: post.id.replace(/\.md$/, "") }, props: { post } })); }
 const { post } = Astro.props; const { Content } = await render(post);
 ---
 <BaseLayout title={post.data.title} description={post.data.excerpt} image={post.data.featuredImage}>
-<article class="section"><div class="section-inner max-w-3xl"><a href="/blog" class="text-sm text-electric-500">← Back to blog</a><div class="mt-8 mb-10"><span class="badge mb-4">{post.data.category}</span><h1 class="heading-1 mb-5">{post.data.title}</h1><p class="text-sm text-navy-500 dark:text-navy-400">{post.data.author} · {post.data.date.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</p></div><img src={post.data.featuredImage} alt="" class="w-full rounded-2xl mb-10" /><div class="prose prose-lg dark:prose-invert max-w-none"><Content /></div></div></article>
+<article class="section"><div class="section-inner max-w-3xl"><a href="/blog" class="text-sm text-electric-500">← Back to blog</a><div class="mt-8 mb-10"><span class="badge mb-4">{post.data.category}</span><h1 class="heading-1 mb-5">{post.data.title}</h1><p class="text-sm text-navy-500 dark:text-navy-400">{post.data.author} · {post.data.date.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</p></div><img src={post.data.featuredImage} alt={`${post.data.title} — FleetClaim AI fleet claims insight`} class="w-full rounded-2xl mb-10" /><div class="prose prose-lg dark:prose-invert max-w-none"><Content /></div></div></article>
 </BaseLayout>
