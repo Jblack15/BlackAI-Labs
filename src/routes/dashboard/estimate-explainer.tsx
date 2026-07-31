@@ -1,7 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { useState, useCallback } from "react";
-import { explainEstimate as callAI } from "~/ai";
+import { explainEstimate as callAI, MissingApiKeyError, RateLimitError } from "~/ai";
+import { sql } from "~/db";
+import { getSessionFromRequest } from "~/auth";
+import { getStartContext } from "@tanstack/start-storage-context";
 
 /* ── Sample estimate text ────────────────────────────────────────── */
 const SAMPLE_ESTIMATE = `R&I Front Bumper Assembly - 2.5 hrs
@@ -23,11 +26,54 @@ const explainEstimate = createServerFn({ method: "POST" })
     return { estimate: estimate.trim() };
   })
   .handler(async ({ data }) => {
+    // Get the authenticated user (if any) for saving to DB
+    let userId: number | null = null;
+    try {
+      const startCtx = getStartContext();
+      if (startCtx?.request) {
+        const session = getSessionFromRequest(startCtx.request);
+        if (session) {
+          userId = session.userId;
+        }
+      }
+    } catch {
+      // Non-authenticated usage is fine — just won't save to DB
+    }
+
     try {
       const explanation = await callAI(data.estimate);
+
+      // Save to estimates table if user is authenticated
+      if (userId) {
+        try {
+          await sql`
+            INSERT INTO estimates (user_id, original_text, explanation)
+            VALUES (${userId}, ${data.estimate}, ${explanation})
+          `;
+        } catch (dbErr: any) {
+          console.error("Failed to save estimate to DB:", dbErr?.message || dbErr);
+          // Non-fatal — still return the explanation
+        }
+      }
+
       return { explanation };
     } catch (err: any) {
       console.error("Estimate Explainer AI error:", err?.message || err);
+
+      if (err instanceof MissingApiKeyError) {
+        return {
+          error:
+            "API key not configured. Please set the ANTHROPIC_API_KEY environment variable to enable estimate explanations.",
+        };
+      }
+
+      if (err instanceof RateLimitError) {
+        return {
+          error:
+            "We're receiving too many requests right now. Please wait a moment and try again.",
+        };
+      }
+
       return {
         error:
           "We couldn't translate this estimate right now. Please try again.",

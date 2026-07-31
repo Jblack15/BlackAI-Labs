@@ -1,7 +1,30 @@
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY!;
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 
+function getApiKey(): string {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) {
+    throw new MissingApiKeyError("ANTHROPIC_API_KEY is not configured");
+  }
+  return key;
+}
+
+export class MissingApiKeyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MissingApiKeyError";
+  }
+}
+
+export class RateLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RateLimitError";
+  }
+}
+
 export async function explainEstimate(estimateText: string): Promise<string> {
+  const apiKey = getApiKey();
+
   const systemPrompt = `You are an expert auto repair estimator who translates technical repair estimates into plain English that customers can understand. 
 
 Rules:
@@ -35,11 +58,11 @@ Key terminology to translate:
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_API_KEY,
+      "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-3-5-sonnet-20241022",
+      model: "claude-sonnet-4-5-20250929",
       max_tokens: 2000,
       system: systemPrompt,
       messages: [
@@ -51,9 +74,20 @@ Key terminology to translate:
     }),
   });
 
+  if (response.status === 429) {
+    throw new RateLimitError("Rate limit exceeded. Please try again in a moment.");
+  }
+
   if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.error?.message || "AI request failed");
+    const text = await response.text();
+    let message = "AI request failed";
+    try {
+      const err = JSON.parse(text);
+      message = err.error?.message || message;
+    } catch {
+      // Use fallback message
+    }
+    throw new Error(message);
   }
 
   const data = await response.json();
