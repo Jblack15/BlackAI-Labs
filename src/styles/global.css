@@ -1,0 +1,189 @@
+@import "tailwindcss";
+
+/* ---- FleetClaim AI Design Tokens ---- */
+@theme {
+  --color-navy-50: #f0f4fa;
+  --color-navy-100: #dce5f2;
+  --color-navy-200: #bccce7;
+  --color-navy-300: #8faad8;
+  --color-navy-400: #6084c5;
+  --color-navy-500: #3d64b0;
+  --color-navy-600: #2e4e94;
+  --color-navy-700: #274078;
+  --color-navy-800: #243764;
+  --color-navy-900: #1a2747;
+  --color-navy-950: #0f172a;
+
+  --color-electric-50: #eff6ff;
+  --color-electric-100: #dbeafe;
+  --color-electric-200: #bfdbfe;
+  --color-electric-300: #93c5fd;
+  --color-electric-400: #60a5fa;
+  --color-electric-500: #3b82f6;
+  --color-electric-600: #2563eb;
+  --color-electric-700: #1d4ed8;
+  --color-electric-800: #1e40af;
+  --color-electric-900: #1e3a8a;
+  --color-electric-950: #172554;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 1rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg: 1.125rem;
+  --text-lg--line-height: 1.75rem;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.75rem;
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: 2rem;
+  --text-3xl: 1.875rem;
+  --text-3xl--line-height: 2.25rem;
+  --text-4xl: 2.25rem;
+  --text-4xl--line-height: 2.5rem;
+  --text-5xl: 3rem;
+  --text-5xl--line-height: 1.1;
+
+  --animate-fade-in: fade-in 0.5s ease-out;
+  --animate-slide-up: slide-up 0.5s ease-out;
+  --animate-slide-down: slide-down 0.3s ease-out;
+}
+
+/* ---- Custom Variants ---- */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ---- Base Layer ---- */
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-white text-navy-900 dark:bg-navy-950 dark:text-navy-50 font-sans;
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+
+  /* Focus styles */
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-electric-500;
+    outline-style: solid;
+  }
+
+  /* Skip to content */
+  .skip-to-content {
+    @apply sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-[100]
+           focus:bg-electric-500 focus:text-white focus:px-4 focus:py-2 focus:rounded-lg
+           focus:shadow-lg focus:no-underline;
+  }
+}
+
+/* ---- Component Layer ---- */
+@layer components {
+  /* Buttons */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg
+           font-semibold text-sm transition-all duration-200
+           bg-electric-500 text-white
+           hover:bg-electric-600 hover:shadow-lg hover:shadow-electric-500/25
+           active:scale-[0.98]
+           focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-electric-500;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg
+           font-semibold text-sm transition-all duration-200
+           bg-navy-100 text-navy-800 dark:bg-navy-800 dark:text-navy-100
+           hover:bg-navy-200 dark:hover:bg-navy-700
+           active:scale-[0.98];
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg
+           font-medium text-sm transition-all duration-200
+           text-navy-600 dark:text-navy-300
+           hover:bg-navy-100 dark:hover:bg-navy-800
+           active:scale-[0.98];
+  }
+
+  /* Card */
+  .card {
+    @apply rounded-2xl border border-navy-200/60 dark:border-navy-800/60
+           bg-white dark:bg-navy-900
+           shadow-sm hover:shadow-md
+           transition-all duration-300;
+  }
+
+  /* Section */
+  .section {
+    @apply py-20 px-4 sm:px-6 lg:px-8;
+  }
+
+  .section-inner {
+    @apply max-w-7xl mx-auto;
+  }
+
+  /* Typography */
+  .heading-1 {
+    @apply text-4xl sm:text-5xl lg:text-5xl font-bold tracking-tight
+           text-navy-950 dark:text-white;
+  }
+
+  .heading-2 {
+    @apply text-3xl sm:text-4xl font-bold tracking-tight
+           text-navy-950 dark:text-white;
+  }
+
+  .heading-3 {
+    @apply text-2xl font-semibold tracking-tight
+           text-navy-900 dark:text-navy-100;
+  }
+
+  .body-large {
+    @apply text-lg text-navy-600 dark:text-navy-300 leading-relaxed;
+  }
+
+  .body-base {
+    @apply text-base text-navy-600 dark:text-navy-300 leading-relaxed;
+  }
+
+  /* Badge */
+  .badge {
+    @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold
+           bg-electric-100 text-electric-700 dark:bg-electric-900/50 dark:text-electric-300;
+  }
+
+  /* Link */
+  .link {
+    @apply text-electric-500 hover:text-electric-600 dark:text-electric-400 dark:hover:text-electric-300
+           transition-colors duration-200 underline-offset-2 hover:underline;
+  }
+}
+
+/* ---- Utilities ---- */
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+/* ---- Animations ---- */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
