@@ -1,5 +1,53 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { createServerFn } from "@tanstack/react-start";
 import { useState, useCallback, useRef, useEffect } from "react";
+import { callChatAI, MissingApiKeyError, RateLimitError } from "~/ai";
+import { sql } from "~/db";
+import { getSessionFromRequest } from "~/auth";
+import { getStartContext } from "@tanstack/start-storage-context";
+
+const sendChatMessage = createServerFn({ method: "POST" })
+  .validator((data: unknown) => {
+    if (typeof data !== "object" || data === null) throw new Error("Conversation and message are required");
+    const { conversationId, message } = data as { conversationId?: string; message?: string };
+    if (!conversationId || !message?.trim()) throw new Error("Conversation and message are required");
+    const id = Number(conversationId);
+    if (!Number.isInteger(id) || id < 1) throw new Error("Invalid conversation");
+    if (message.trim().length > 4000) throw new Error("Message is too long");
+    return { conversationId: id, message: message.trim() };
+  })
+  .handler(async ({ data }) => {
+    let userId: number | null = null;
+    try {
+      const ctx = getStartContext();
+      if (ctx?.request) {
+        const session = getSessionFromRequest(ctx.request);
+        if (session) userId = session.userId;
+      }
+    } catch { /* anonymous chat is still allowed */ }
+
+    try {
+      const historyRows = userId
+        ? await sql`SELECT role, content FROM messages m JOIN conversations c ON c.id = m.conversation_id WHERE m.conversation_id = ${data.conversationId} AND c.user_id = ${userId} ORDER BY m.created_at DESC LIMIT 20`
+        : [];
+      const history = [...historyRows].reverse()
+        .filter((row: any) => row.role === "customer" || row.role === "owner" || row.role === "ai")
+        .map((row: any) => ({ role: row.role === "ai" || row.role === "owner" ? "assistant" as const : "user" as const, content: row.content }));
+      history.push({ role: "user", content: data.message });
+      const response = await callChatAI(history);
+
+      if (userId) {
+        await sql`INSERT INTO messages (conversation_id, role, content) SELECT ${data.conversationId}, 'customer', ${data.message} WHERE EXISTS (SELECT 1 FROM conversations WHERE id = ${data.conversationId} AND user_id = ${userId})`;
+        await sql`INSERT INTO messages (conversation_id, role, content) SELECT ${data.conversationId}, 'ai', ${response} WHERE EXISTS (SELECT 1 FROM conversations WHERE id = ${data.conversationId} AND user_id = ${userId})`;
+      }
+      return { response };
+    } catch (err: any) {
+      console.error("Chatbot AI error:", err?.message || err);
+      if (err instanceof MissingApiKeyError) return { error: "API key not configured. Please set ANTHROPIC_API_KEY to enable the AI chatbot." };
+      if (err instanceof RateLimitError) return { error: "We're receiving too many requests right now. Please wait a moment and try again." };
+      return { error: "We couldn't send that message right now. Please try again." };
+    }
+  });
 
 /* ── Types ─────────────────────────────────────────────────────────── */
 type Status = "Waiting" | "Resolved" | "Active";
@@ -214,6 +262,8 @@ function ChatbotPage() {
   });
   const [messageInput, setMessageInput] = useState("");
   const [isLoadingConv, setIsLoadingConv] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [sendError, setSendError] = useState("");
   const [showMobileChat, setShowMobileChat] = useState(false);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -251,24 +301,30 @@ function ChatbotPage() {
     [selectedId],
   );
 
-  const handleSendMessage = useCallback(() => {
+  const handleSendMessage = useCallback(async () => {
     const text = messageInput.trim();
-    if (!text || !selectedId) return;
-
-    const newMsg: Message = {
-      id: `msg-${Date.now()}`,
-      sender: "ai",
-      text,
-      timestamp: formatTime(),
-    };
-
-    setConvMessages((prev) => ({
-      ...prev,
-      [selectedId]: [...(prev[selectedId] ?? []), newMsg],
-    }));
+    if (!text || !selectedId || isSending) return;
+    const optimistic: Message = { id: `msg-${Date.now()}`, sender: "customer", text, timestamp: formatTime() };
+    setConvMessages((prev) => ({ ...prev, [selectedId]: [...(prev[selectedId] ?? []), optimistic] }));
     setMessageInput("");
-    inputRef.current?.focus();
-  }, [messageInput, selectedId]);
+    setSendError("");
+    setIsSending(true);
+    try {
+      const data = await sendChatMessage({ data: { conversationId: selectedId, message: text } });
+      if ("error" in data) {
+        setSendError(data.error);
+        setConvMessages((prev) => ({ ...prev, [selectedId]: (prev[selectedId] ?? []).filter((m) => m.id !== optimistic.id) }));
+      } else {
+        setConvMessages((prev) => ({ ...prev, [selectedId]: [...(prev[selectedId] ?? []), { id: `ai-${Date.now()}`, sender: "ai", text: data.response, timestamp: formatTime() }] }));
+      }
+    } catch {
+      setSendError("We couldn't send that message right now. Please try again.");
+      setConvMessages((prev) => ({ ...prev, [selectedId]: (prev[selectedId] ?? []).filter((m) => m.id !== optimistic.id) }));
+    } finally {
+      setIsSending(false);
+      inputRef.current?.focus();
+    }
+  }, [messageInput, selectedId, isSending]);
 
   const handleQuickReply = useCallback((reply: string) => {
     setMessageInput(reply);
@@ -490,6 +546,8 @@ function ChatbotPage() {
               <div ref={chatEndRef} />
             </div>
 
+            {sendError && <div className="mx-4 mt-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">{sendError}</div>}
+
             {/* Quick replies */}
             <div className="px-4 py-2 border-t border-slate-800 flex flex-wrap gap-2 shrink-0">
               {QUICK_REPLIES.map((reply) => (
@@ -519,7 +577,7 @@ function ChatbotPage() {
                 <button
                   type="button"
                   onClick={handleSendMessage}
-                  disabled={!messageInput.trim()}
+                  disabled={!messageInput.trim() || isSending}
                   className="shrink-0 flex items-center justify-center h-10 w-10 rounded-xl bg-orange-500 text-white hover:bg-orange-600 transition disabled:opacity-40 disabled:cursor-not-allowed"
                   aria-label="Send message"
                 >

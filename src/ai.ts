@@ -22,6 +22,37 @@ export class RateLimitError extends Error {
   }
 }
 
+export type ChatMessage = { role: "user" | "assistant"; content: string };
+
+/** Send a conversation to Claude with the repair-shop assistant persona. */
+export async function callChatAI(messages: ChatMessage[]): Promise<string> {
+  const apiKey = getApiKey();
+  const response = await fetch(ANTHROPIC_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-5-20250929",
+      max_tokens: 1200,
+      system: "You are CollisionAI, a friendly and knowledgeable AI assistant for an automotive repair shop. Help customers understand repairs, estimates, scheduling, insurance, and vehicle pickup. Be concise, reassuring, and honest. Never invent repair status, prices, dates, or policies; say when the shop team needs to confirm details.",
+      messages,
+    }),
+  });
+
+  if (response.status === 429) throw new RateLimitError("Rate limit exceeded. Please try again in a moment.");
+  if (!response.ok) {
+    const text = await response.text();
+    let message = "AI request failed";
+    try { message = JSON.parse(text).error?.message || message; } catch { /* fallback */ }
+    throw new Error(message);
+  }
+  const data = await response.json();
+  return data.content?.[0]?.text || "I’m sorry, I wasn’t able to generate a response. Please try again.";
+}
+
 export async function explainEstimate(estimateText: string): Promise<string> {
   const apiKey = getApiKey();
 
