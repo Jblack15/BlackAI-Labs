@@ -32,7 +32,11 @@ function getClient(): NeonQueryFunction<false, false> {
  */
 
 // Lazy proxy: resolves client on first use, throws only when actually queried.
-export const sql = new Proxy({} as NeonQueryFunction<false, false>, {
+// The target MUST be a callable function — a Proxy is only callable when its
+// target is callable, so a plain-object target would make `sql`...` throw
+// "not a function" and silently disable every tagged-template query.
+const callableTarget = (() => {}) as NeonQueryFunction<false, false>;
+export const sql = new Proxy(callableTarget, {
   get(_target, prop) {
     const client = getClient();
     const val = (client as any)[prop];
