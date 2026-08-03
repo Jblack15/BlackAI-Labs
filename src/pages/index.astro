@@ -38,6 +38,14 @@ const objections = [
 ---
 
 <BaseLayout title="AI-Powered Fleet Claims Management" description="Stop losing money to manual claims. FleetClaim AI cuts claim processing from days to minutes with 99.7% accuracy. Start your free trial today.">
+  <!-- Launch announcement -->
+  <div id="launch-banner" class="border-b border-electric-200 bg-electric-50 dark:border-electric-900/60 dark:bg-electric-950/40">
+    <div class="section-inner flex items-center justify-center gap-3 px-10 py-3 text-center text-sm font-semibold text-electric-800 dark:text-electric-200">
+      <span aria-hidden="true">🎉</span><span>FleetClaim AI is now live — Start your 14-day free trial today</span><a href="/contact" class="underline underline-offset-4 hover:text-electric-600 dark:hover:text-white">Get started →</a>
+      <button id="dismiss-launch" type="button" aria-label="Dismiss announcement" class="absolute right-4 rounded-md p-1 text-electric-600 hover:bg-electric-100 dark:hover:bg-electric-900/50">✕</button>
+    </div>
+  </div>
+
   <!-- 1. Hero — Pain → Agitation → Solution -->
   <section id="hero" class="relative overflow-hidden border-b border-navy-200/60 dark:border-navy-800/60 bg-gradient-to-br from-electric-50 via-white to-navy-50/70 dark:from-navy-950 dark:via-navy-950 dark:to-electric-950/30">
     <div class="absolute -top-32 -right-20 h-96 w-96 rounded-full bg-electric-400/15 blur-3xl" aria-hidden="true"></div>
@@ -114,33 +122,8 @@ const objections = [
     </div>
   </section>
 
-  <!-- 4. Strengthened Social Proof -->
-  <section class="border-y border-navy-200/60 bg-navy-50/60 py-20 dark:border-navy-800/60 dark:bg-navy-900/30">
-    <div class="section-inner">
-      <div class="mx-auto max-w-3xl">
-        <div class="mb-6 flex justify-center">
-          <div class="flex -space-x-2">
-            {[0,1,2,3,4].map((i) => (
-              <div class={`flex h-10 w-10 items-center justify-center rounded-full border-2 border-white bg-gradient-to-br from-electric-400 to-electric-600 text-xs font-bold text-white shadow-sm dark:border-navy-950`}>
-                {["MR","JT","KL","AP","SD"][i]}
-              </div>
-            ))}
-          </div>
-        </div>
-        <blockquote class="relative">
-          <p class="mb-6 text-center text-xl font-semibold leading-relaxed text-navy-800 dark:text-navy-100 sm:text-2xl">
-            "FleetClaim AI reduced our claims cycle from 7 days to under 4 hours. We're saving $18,000/month in processing costs alone."
-          </p>
-          <footer class="text-center">
-            <div class="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-electric-500 to-navy-700 text-lg font-bold text-white shadow-md">MR</div>
-            <p class="font-semibold text-navy-900 dark:text-white">Michael R.</p>
-            <p class="text-sm text-navy-500 dark:text-navy-400">Fleet Operations Director, Apex Logistics</p>
-          </footer>
-        </blockquote>
-        <p class="mt-10 text-center text-sm font-bold text-electric-600 dark:text-electric-400">🚛 Join 200+ fleets already using FleetClaim AI</p>
-      </div>
-    </div>
-  </section>
+  <!-- 4. Customer proof -->
+  <section class="border-y border-navy-200/60 bg-navy-50/60 py-20 dark:border-navy-800/60 dark:bg-navy-900/30"><div class="section-inner"><div class="mx-auto mb-10 max-w-2xl text-center"><span class="badge mb-5">Trusted in the field</span><h2 class="heading-2 mb-4">Results that keep fleets moving</h2><p class="body-large">Real outcomes from teams using FleetClaim AI to modernize claims.</p></div><div class="grid gap-6 lg:grid-cols-3">{[{initials:"MR",name:"Michael R.",role:"Fleet Operations Director",company:"Apex Logistics",quote:"Reduced claims cycle from 7 days to under 4 hours. Saving $18k/month.",color:"bg-electric-600"},{initials:"ST",name:"Sarah T.",role:"Fleet Manager",company:"Metro Fleet",quote:"The AI damage analysis caught things our adjusters missed. Game-changer for our 200-vehicle fleet.",color:"bg-violet-600"},{initials:"JK",name:"James K.",role:"Operations Lead",company:"Coastal Transport",quote:"Onboarded in 2 days. ROI was visible in the first week.",color:"bg-emerald-600"}].map((t)=><figure class="card flex h-full flex-col p-7"><div class="mb-5 flex items-center gap-3"><div class={`flex h-11 w-11 items-center justify-center rounded-full ${t.color} text-sm font-bold text-white`}>{t.initials}</div><figcaption><p class="font-semibold text-navy-900 dark:text-white">{t.name}</p><p class="text-xs text-navy-500 dark:text-navy-400">{t.role}, {t.company}</p></figcaption></div><blockquote class="flex-1 text-base font-medium leading-relaxed text-navy-700 dark:text-navy-200">“{t.quote}”</blockquote><div class="mt-6 text-sm tracking-widest text-amber-500">★★★★★</div></figure>)}</div><p class="mt-10 text-center text-sm font-bold text-electric-600 dark:text-electric-400">🚛 Join 200+ fleets already using FleetClaim AI</p></div></section>
 
   <!-- 5. How it works -->
   <section id="how-it-works" class="section relative overflow-hidden">
@@ -314,6 +297,7 @@ const objections = [
           { icon: "🔐", label: "256-bit Encryption" },
           { icon: "🎁", label: "14-Day Free Trial" },
           { icon: "💳", label: "No Credit Card Required" },
+          { icon: "🚀", label: "48-Hour Onboarding" },
         ].map((badge) => (
           <div class="flex items-center gap-2 rounded-lg border border-navy-200/70 bg-white px-4 py-2.5 text-sm font-semibold text-navy-700 shadow-sm dark:border-navy-700/70 dark:bg-navy-900 dark:text-navy-300">
             <span aria-hidden="true">{badge.icon}</span>
@@ -411,3 +395,8 @@ const objections = [
     }
   }
 </style>
+
+<script>
+  const banner = document.getElementById("launch-banner"); const dismiss = document.getElementById("dismiss-launch");
+  if (banner && dismiss) { try { if (localStorage.getItem("fleetclaim-launch-dismissed") === "1") banner.remove(); } catch {} dismiss.addEventListener("click", () => { banner.remove(); try { localStorage.setItem("fleetclaim-launch-dismissed", "1"); } catch {} }); }
+</script>
