@@ -57,3 +57,17 @@ This rebuilds the Astro site and restarts the server on port 3000. Editing files
 ## Contact Email
 
 Form submissions: `fleetclaim-ai-27b8975b@ctomail.io`
+
+## API endpoints (serve.ts)
+The Bun server exposes two JSON endpoints; they take priority over the static handler.
+
+- `POST /api/contact` — demo-request form backend. Body: `{ firstName, lastName, email, company, role, plan, message }`.
+  Validates `firstName` + `email` (400 with a `fields` map on failure), appends the lead to `.data/leads.json`
+  (gitignored), returns `200 {"ok":true,...}`. The contact form POSTs here while still mirroring to
+  `localStorage` (`fleetclaim-leads`) so a lead is never lost.
+- `GET /api/leads` — returns the JSON array of all leads. Requires `Authorization: Bearer <token>`.
+  Token comes from the `LEADS_API_TOKEN` env var, defaulting to `fleetclaim-dev-token` for dev.
+  Example: `curl http://localhost:3000/api/leads -H "Authorization: Bearer fleetclaim-dev-token"`
+- CORS: API responses include `Access-Control-Allow-Origin: *`; `OPTIONS /api/*` preflight returns 204.
+- Static routing: clean URLs resolve to `dist/<route>/index.html` (Astro directory output), with a
+  `.html` fallback and an SPA-style `index.html` fallback. Every request is logged with status + latency.
