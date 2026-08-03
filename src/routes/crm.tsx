@@ -372,6 +372,10 @@ const fetchLeadSmsLogs = createServerFn({ method: "GET" })
     }
   });
 
+const skipTrace = createServerFn({ method: "POST" }).validator((data: unknown) => data as { ids?: string[] }).handler(async ({ data }) => { try { const { skipTraceLeads } = await import("~/lib/skip-trace"); return await skipTraceLeads(data.ids); } catch (e) { return { success: false, updated: 0, error: e instanceof Error ? e.message : "Skip trace failed" }; } });
+const startOutreach = createServerFn({ method: "POST" }).validator((data: unknown) => data as { leadId: string }).handler(async ({ data }) => { try { const { startSmsOutreach } = await import("~/lib/outreach"); return await startSmsOutreach(data.leadId); } catch (e) { return { success: false, error: e instanceof Error ? e.message : "Outreach failed" }; } });
+const bulkOutreach = createServerFn({ method: "POST" }).handler(async () => { try { const { startBulkOutreach } = await import("~/lib/outreach"); return await startBulkOutreach(); } catch (e) { return { success: false, started: 0, error: e instanceof Error ? e.message : "Outreach failed" }; } });
+
 const sendManualSms = createServerFn({ method: "POST" })
   .validator((data: unknown) => {
     const d = data as { leadId: string; message: string };
@@ -483,6 +487,9 @@ function LeadDetailModal({
   onSendSms,
   smsSending,
   smsResult,
+  onSkipTrace,
+  onStartOutreach,
+  automationBusy,
 }: {
   lead: Lead;
   onClose: () => void;
@@ -491,6 +498,9 @@ function LeadDetailModal({
   onSendSms: (leadId: string, message: string) => void;
   smsSending: boolean;
   smsResult: { success: boolean; error?: string } | null;
+  onSkipTrace: (id: string) => void;
+  onStartOutreach: (id: string) => void;
+  automationBusy: boolean;
 }) {
   const [smsMessage, setSmsMessage] = useState("");
 
@@ -546,6 +556,8 @@ function LeadDetailModal({
         <div className="space-y-6 px-6 py-4">
           {/* Actions */}
           <div className="flex flex-wrap gap-2">
+            <button onClick={() => onSkipTrace(lead.id)} disabled={automationBusy} className="rounded-lg border border-teal-500/30 bg-teal-500/10 px-4 py-2 text-sm font-medium text-teal-300 disabled:opacity-50">Skip Trace</button>
+            <button onClick={() => onStartOutreach(lead.id)} disabled={automationBusy || !lead.phone} className="rounded-lg border border-gold-500/30 bg-gold-500/10 px-4 py-2 text-sm font-medium text-gold-300 disabled:opacity-50">Start Outreach</button>
             <Link
               to="/calculator"
               className="rounded-lg bg-gold-500 px-4 py-2 text-sm font-semibold text-navy-900 transition-colors hover:bg-gold-400"
@@ -918,6 +930,9 @@ function CrmPage() {
   const [smsLogs, setSmsLogs] = useState<SmsLogEntry[]>([]);
   const [smsSending, setSmsSending] = useState(false);
   const [smsResult, setSmsResult] = useState<{ success: boolean; error?: string } | null>(null);
+  const [automationBusy, setAutomationBusy] = useState(false);
+  const runSkipTrace = async (ids?: string[]) => { setAutomationBusy(true); try { const result = await skipTrace({ data: { ids } }); if (!result.success) alert(result.error); else alert(`Skip trace complete: ${result.updated} lead(s) enriched.`); if (result.success && ids?.[0]) { const refreshed = await fetchLeads(); setLeads(refreshed); setSelectedLead(refreshed.find((l) => l.id === ids[0]) || null); } } catch { alert("Skip trace failed"); } finally { setAutomationBusy(false); } };
+  const runOutreach = async (id: string) => { setAutomationBusy(true); try { const result = await startOutreach({ data: { leadId: id } }); if (!result.success) alert(result.error); else alert("Outreach started."); } catch { alert("Outreach failed"); } finally { setAutomationBusy(false); } };
 
   // Load leads from server (falls back to mock data)
   useEffect(() => {
@@ -1000,6 +1015,12 @@ function CrmPage() {
                   <span className="ml-2 inline-block h-3 w-3 animate-pulse rounded-full bg-gold-500" />
                 )}
               </p>
+            </div>
+
+            {/* Automation actions */}
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => runSkipTrace()} disabled={automationBusy} className="rounded-lg border border-teal-500/30 bg-teal-500/10 px-3 py-2 text-sm font-medium text-teal-300 disabled:opacity-50">{automationBusy ? "Working..." : "Skip Trace All"}</button>
+              <button onClick={async () => { setAutomationBusy(true); try { const result = await bulkOutreach(); if (!result.success) alert(result.error); else alert(`Started outreach for ${result.started} qualified lead(s).`); } finally { setAutomationBusy(false); } }} disabled={automationBusy} className="rounded-lg border border-gold-500/30 bg-gold-500/10 px-3 py-2 text-sm font-medium text-gold-300 disabled:opacity-50">Bulk Outreach</button>
             </div>
 
             {/* View Toggle */}
@@ -1098,6 +1119,9 @@ function CrmPage() {
           onSendSms={handleSendSms}
           smsSending={smsSending}
           smsResult={smsResult}
+          onSkipTrace={(id) => runSkipTrace([id])}
+          onStartOutreach={runOutreach}
+          automationBusy={automationBusy}
         />
       )}
     </div>
