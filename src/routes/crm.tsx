@@ -1024,6 +1024,20 @@ function CrmPage() {
 
             {/* Automation actions */}
             <div className="flex flex-wrap gap-2">
+              <Link
+                to="/crm/import"
+                className="inline-flex items-center rounded-lg border border-gold-500/40 bg-gold-500/10 px-3 py-2 text-sm font-medium text-gold-300 transition-colors hover:bg-gold-500/20"
+              >
+                <svg className="mr-1.5 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+                  />
+                </svg>
+                Import Leads
+              </Link>
               <button onClick={() => runSkipTrace()} disabled={automationBusy} className="rounded-lg border border-teal-500/30 bg-teal-500/10 px-3 py-2 text-sm font-medium text-teal-300 disabled:opacity-50">{automationBusy ? "Working..." : "Skip Trace All"}</button>
               <button onClick={async () => { setAutomationBusy(true); try { const result = await bulkOutreach(); if (!result.success) alert(result.error); else alert(`Started SMS outreach for ${result.started} qualified lead(s).`); } finally { setAutomationBusy(false); } }} disabled={automationBusy} className="rounded-lg border border-gold-500/30 bg-gold-500/10 px-3 py-2 text-sm font-medium text-gold-300 disabled:opacity-50">Bulk SMS Outreach</button>
               <button onClick={async () => { setAutomationBusy(true); try { const result = await bulkEmailOutreach(); if (!result.success) alert(result.error); else alert(`Started email outreach for ${result.started} qualified lead(s).`); } finally { setAutomationBusy(false); } }} disabled={automationBusy} className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-sm font-medium text-blue-300 disabled:opacity-50">Bulk Email Outreach</button>
