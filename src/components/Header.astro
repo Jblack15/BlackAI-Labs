@@ -1,0 +1,158 @@
+---
+import ThemeToggle from "./ThemeToggle.astro";
+
+const navLinks = [
+  { href: "/", label: "Home" },
+  { href: "/pricing", label: "Pricing" },
+  { href: "/blog", label: "Blog" },
+  { href: "/docs", label: "Docs" },
+  { href: "/contact", label: "Contact" },
+];
+---
+
+<header
+  class="sticky top-0 z-50 w-full border-b border-navy-200/60 dark:border-navy-800/60
+         bg-white/70 dark:bg-navy-950/70 backdrop-blur-2xl shadow-sm shadow-navy-950/5"
+>
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="flex items-center justify-between h-16 lg:h-18">
+      <!-- Logo -->
+      <a
+        href="/"
+        class="flex items-center gap-2.5 font-bold text-lg text-navy-950 dark:text-white
+               hover:opacity-80 transition-opacity shrink-0"
+        aria-label="FleetClaim AI Home"
+      >
+        <img src="/logo.png" alt="FleetClaim AI fleet claims management platform logo" class="h-9 w-auto max-w-[190px] object-contain object-left" />
+      </a>
+
+      <!-- Desktop Navigation -->
+      <nav class="hidden lg:flex items-center gap-1" aria-label="Main">
+        {navLinks.map((link) => (
+          <a
+            href={link.href}
+            class="px-3 py-2 rounded-lg text-sm font-medium
+                   text-navy-600 dark:text-navy-300
+                   hover:text-navy-900 dark:hover:text-white
+                   hover:bg-navy-100 dark:hover:bg-navy-800
+                   transition-all duration-200"
+          >
+            {link.label}
+          </a>
+        ))}
+      </nav>
+
+      <!-- Right side: CTA + Theme Toggle + Mobile Menu Button -->
+      <div class="flex items-center gap-2">
+        <a
+          href="/contact"
+          class="hidden sm:inline-flex btn-primary text-xs lg:text-sm px-4 py-2 lg:px-6 lg:py-3"
+        >
+          Request Demo
+        </a>
+
+        <!-- Theme Toggle -->
+        <div class="hidden lg:block">
+          <ThemeToggle />
+        </div>
+
+        <!-- Mobile Menu Button -->
+        <button
+          id="mobile-menu-btn"
+          type="button"
+          class="lg:hidden inline-flex items-center justify-center w-10 h-10 rounded-lg
+                 text-navy-600 dark:text-navy-300
+                 hover:bg-navy-100 dark:hover:bg-navy-800
+                 transition-all duration-200"
+          aria-expanded="false"
+          aria-controls="mobile-menu"
+          aria-label="Open menu"
+        >
+          <svg id="mobile-menu-icon-open" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+          </svg>
+          <svg id="mobile-menu-icon-close" class="hidden w-6 h-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mobile Menu Panel -->
+  <div
+    id="mobile-menu"
+    class="hidden lg:hidden border-t border-navy-200/60 dark:border-navy-800/60
+           bg-white dark:bg-navy-950 animate-slide-down"
+  >
+    <div class="px-4 py-4 space-y-1">
+      {navLinks.map((link) => (
+        <a
+          href={link.href}
+          class="block px-4 py-3 rounded-lg text-base font-medium
+                 text-navy-700 dark:text-navy-200
+                 hover:bg-navy-100 dark:hover:bg-navy-800
+                 transition-all duration-200"
+        >
+          {link.label}
+        </a>
+      ))}
+      <div class="pt-3 pb-2 flex items-center justify-between">
+        <a href="/contact" class="btn-primary w-full text-center text-sm">
+          Request Demo
+        </a>
+        <div class="ml-3">
+          <ThemeToggle />
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<script>
+  const btn = document.getElementById("mobile-menu-btn");
+  const menu = document.getElementById("mobile-menu");
+  const iconOpen = document.getElementById("mobile-menu-icon-open");
+  const iconClose = document.getElementById("mobile-menu-icon-close");
+
+  let isOpen = false;
+
+  btn?.addEventListener("click", () => {
+    isOpen = !isOpen;
+    if (isOpen) {
+      menu?.classList.remove("hidden");
+      iconOpen?.classList.add("hidden");
+      iconClose?.classList.remove("hidden");
+      btn.setAttribute("aria-expanded", "true");
+      btn.setAttribute("aria-label", "Close menu");
+    } else {
+      menu?.classList.add("hidden");
+      iconOpen?.classList.remove("hidden");
+      iconClose?.classList.add("hidden");
+      btn.setAttribute("aria-expanded", "false");
+      btn.setAttribute("aria-label", "Open menu");
+    }
+  });
+
+  // Close mobile menu on resize to desktop
+  window.addEventListener("resize", () => {
+    if (window.innerWidth >= 1024 && isOpen) {
+      isOpen = false;
+      menu?.classList.add("hidden");
+      iconOpen?.classList.remove("hidden");
+      iconClose?.classList.add("hidden");
+      btn?.setAttribute("aria-expanded", "false");
+      btn?.setAttribute("aria-label", "Open menu");
+    }
+  });
+</script>
+
+<style>
+  @keyframes slide-down {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .animate-slide-down {
+    animation: slide-down 0.2s ease-out;
+  }
+</style>

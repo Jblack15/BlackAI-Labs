@@ -1,25 +1,35 @@
-# Your site
+# FleetClaim AI Marketing Site
 
-This is the team's website. It's a [TanStack Start](https://tanstack.com/start)
-app (React + Vite + Tailwind), served on **port 3000**. It starts life as a simple
-"coming soon" placeholder (the headline reads the business name from `site.json` at
-request time), but it's a real full-stack framework — build it out into the real
-site and grow it into a dynamic app without changing hosting or starting a second
-server.
+This is the FleetClaim AI marketing website — an [Astro](https://astro.build) static site
+with Tailwind CSS v4 + TypeScript, served on **port 3000**.
 
 ## Layout
 
 ```
 src/
-  routes/
-    __root.tsx     # the HTML shell: <head>, fonts, global layout
-    index.tsx      # the landing page ("/")
-  styles/app.css   # Tailwind entrypoint + base styles
-vite.config.ts     # serves on 0.0.0.0:3000
+  layouts/
+    BaseLayout.astro    # HTML shell: <head>, SEO, header, footer, theme
+  components/
+    Header.astro        # Sticky nav, logo, links, CTA, mobile hamburger
+    Footer.astro        # Multi-column footer with links and socials
+    ThemeToggle.astro   # Dark/light mode toggle with localStorage persistence
+  pages/
+    index.astro         # "/" — homepage
+    pricing.astro       # "/pricing"
+    contact.astro       # "/contact"
+    blog.astro          # "/blog"
+    docs.astro          # "/docs" (knowledge base)
+    affiliates.astro    # "/affiliates"
+    dashboard.astro     # "/dashboard" (analytics mockup)
+  styles/
+    global.css          # Tailwind entrypoint + design tokens + components
+  scripts/
+    theme.ts            # Theme initialization (reference)
+public/
+  favicon.svg
 ```
 
-Add a page by creating a new file under `src/routes/` — e.g. `about.tsx` becomes
-`/about`. Files are routes; the router is generated automatically.
+Add a page by creating a new `.astro` file under `src/pages/` — e.g. `about.astro` becomes `/about`.
 
 ## Publishing changes
 
@@ -29,72 +39,35 @@ After editing, run:
 bun run publish
 ```
 
-This rebuilds the site and restarts the server on port 3000. (Editing files alone
-does not update the live site — you must publish.) It always takes over port 3000
-from whatever is running there, so it's safe to re-run no matter who started the
-current server. The server log is `.run/server.log`.
+This rebuilds the Astro site and restarts the server on port 3000. Editing files alone does not update the live site — you must publish.
 
-## Going live (production hosting)
+## Design
 
-The preview above (port 3000) is where the site runs _while you build it_ — instant and free, but a
-preview: it can sleep, and it has no custom domain. To put the site **live on the web** — a fast,
-always-on URL the owner can share and point their own domain at — publish it to a real host (Vercel).
+- **Color palette**: Deep navy (#0F172A), electric blue (#3B82F6), clean whites, subtle grays
+- **Dark mode**: Class-based toggling with `prefers-color-scheme` detection and localStorage persistence
+- **Typography**: Inter (sans), JetBrains Mono (mono)
+- **Responsive**: Mobile, tablet, desktop breakpoints throughout
 
-```bash
-export VERCEL_TOKEN=...   # the team lead collects this from the owner
-bun run go-live           # builds, deploys, makes the project public, prints "LIVE: <url>"
-```
+## Stripe Price IDs (for later integration)
 
-`go-live` bundles the SSR handler (via `vercel-entry.ts`, which adapts Vercel's Node function
-signature to the site's web fetch handler) into `.vercel/output` — no Git repo needed — then deploys
-it. It resolves the token's team scope automatically and makes the new project public (new Vercel
-projects inherit org SSO protection, which would otherwise show a login wall), so the owner only ever
-pastes a `VERCEL_TOKEN`. Pass `DATABASE_URL` in the environment too if the site uses a database. The
-team lead runs this flow and reports the live URL; don't hand-roll hosting or tunnels.
+- Starter ($99/mo): `price_1TzJL3DXObfXKLO3H3pGYJmM`
+- Professional ($249/mo): `price_1TzJL3DXObfXKLO3EWjaTi55`
+- Enterprise ($499/mo): `price_1TzJL3DXObfXKLO3pVi2fYRL`
 
-## Making it dynamic
+## Contact Email
 
-The site is static today, but adding backend behavior is one file away — no second
-process, no extra port, all served on the same port 3000:
+Form submissions: `fleetclaim-ai-27b8975b@ctomail.io`
 
-- **Server function** — call server-only code (DB, secrets, fetch) directly from a
-  component:
+## API endpoints (serve.ts)
+The Bun server exposes two JSON endpoints; they take priority over the static handler.
 
-  ```tsx
-  import { createServerFn } from "@tanstack/react-start";
-
-  const getMessage = createServerFn().handler(async () => {
-    return { message: "Hello from the server" };
-  });
-  ```
-
-- **API route** — add `src/routes/api/<name>.ts` for a REST endpoint.
-
-Run `bun run publish` after either, and the dynamic behavior is live.
-
-## Adding a database
-
-When the site needs to store data (form submissions, content, accounts), connect a
-database rather than writing to files:
-
-1. Call `discover_tools` for a database (e.g. "serverless Postgres with a free
-   tier"). The owner connects it (Neon) from the card, which provides `DATABASE_URL`.
-2. Query it from server-only code with the built-in helper — never from the client:
-
-   ```tsx
-   import { createServerFn } from "@tanstack/react-start";
-   import { sql } from "~/db";
-
-   const getPosts = createServerFn().handler(async () => {
-     const rows = await sql()`select id, title, created_at from posts`;
-     // Coerce non-primitive columns before returning — timestamps come back as JS
-     // Dates, which React will not render:
-     return rows.map((r) => ({ ...r, created_at: String(r.created_at) }));
-   });
-   ```
-
-`DATABASE_URL` is injected into this sandbox automatically once connected, and it's
-passed to the live host by `bun run go-live` — so the same code works in the preview
-and in production. If you connect the database _after_ going live, re-run
-`bun run go-live` so production picks up `DATABASE_URL`. One database serves both the
-preview and the live site.
+- `POST /api/contact` — demo-request form backend. Body: `{ firstName, lastName, email, company, role, plan, message }`.
+  Validates `firstName` + `email` (400 with a `fields` map on failure), appends the lead to `.data/leads.json`
+  (gitignored), returns `200 {"ok":true,...}`. The contact form POSTs here while still mirroring to
+  `localStorage` (`fleetclaim-leads`) so a lead is never lost.
+- `GET /api/leads` — returns the JSON array of all leads. Requires `Authorization: Bearer <token>`.
+  Token comes from the `LEADS_API_TOKEN` env var, defaulting to `fleetclaim-dev-token` for dev.
+  Example: `curl http://localhost:3000/api/leads -H "Authorization: Bearer fleetclaim-dev-token"`
+- CORS: API responses include `Access-Control-Allow-Origin: *`; `OPTIONS /api/*` preflight returns 204.
+- Static routing: clean URLs resolve to `dist/<route>/index.html` (Astro directory output), with a
+  `.html` fallback and an SPA-style `index.html` fallback. Every request is logged with status + latency.

@@ -1,0 +1,75 @@
+<button
+  id="theme-toggle"
+  type="button"
+  class="relative inline-flex items-center justify-center w-10 h-10 rounded-lg
+         text-navy-500 dark:text-navy-400
+         hover:bg-navy-100 dark:hover:bg-navy-800
+         transition-all duration-200
+         focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-electric-500"
+  aria-label="Toggle dark mode"
+>
+  <!-- Sun icon (shown in dark mode) -->
+  <svg
+    id="theme-icon-sun"
+    class="hidden dark:block w-5 h-5"
+    fill="none"
+    viewBox="0 0 24 24"
+    stroke-width="1.5"
+    stroke="currentColor"
+    aria-hidden="true"
+  >
+    <path stroke-linecap="round" stroke-linejoin="round"
+      d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" />
+  </svg>
+  <!-- Moon icon (shown in light mode) -->
+  <svg
+    id="theme-icon-moon"
+    class="block dark:hidden w-5 h-5"
+    fill="none"
+    viewBox="0 0 24 24"
+    stroke-width="1.5"
+    stroke="currentColor"
+    aria-hidden="true"
+  >
+    <path stroke-linecap="round" stroke-linejoin="round"
+      d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" />
+  </svg>
+</button>
+
+<script>
+  const STORAGE_KEY = "fleetclaim-theme";
+
+  function getCurrentTheme(): "light" | "dark" {
+    return document.documentElement.classList.contains("dark") ? "dark" : "light";
+  }
+
+  function setTheme(theme: "light" | "dark") {
+    if (theme === "dark") {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+    try {
+      localStorage.setItem(STORAGE_KEY, theme);
+    } catch {}
+  }
+
+  function toggleTheme() {
+    const current = getCurrentTheme();
+    setTheme(current === "dark" ? "light" : "dark");
+  }
+
+  document.getElementById("theme-toggle")?.addEventListener("click", toggleTheme);
+
+  // Listen for OS preference changes
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
+    // Only auto-switch if no explicit preference saved
+    try {
+      if (!localStorage.getItem(STORAGE_KEY)) {
+        setTheme(e.matches ? "dark" : "light");
+      }
+    } catch {
+      setTheme(e.matches ? "dark" : "light");
+    }
+  });
+</script>

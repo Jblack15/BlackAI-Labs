@@ -1,7 +1,4 @@
 User-agent: *
 Allow: /
-Disallow: /dashboard
-Disallow: /crm
-Disallow: /buyers
 
-Sitemap: https://dealflowai.com/sitemap.xml
+Sitemap: https://fleetclaim.ai/sitemap.xml
