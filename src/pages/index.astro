@@ -47,33 +47,33 @@ const objections = [
   </div>
 
   <!-- 1. Hero — Pain → Agitation → Solution -->
-  <section id="hero" class="dark-section dark-grid relative overflow-hidden border-b border-electric-400/20">
-    <div class="ambient-orb -right-28 -top-28 h-[28rem] w-[28rem] bg-electric-500/25" aria-hidden="true"></div><div class="ambient-orb -bottom-40 left-1/3 h-96 w-96 bg-electric-300/10" aria-hidden="true"></div>
+  <section id="hero" class="relative overflow-hidden border-b border-navy-200/60 bg-gradient-to-br from-white via-white to-electric-50 dark:border-navy-800/60 dark:from-navy-950 dark:via-navy-950 dark:to-navy-900">
+    
     <div class="section-inner relative grid items-center gap-12 py-20 sm:py-24 lg:grid-cols-[1fr_1.05fr] lg:gap-16 lg:py-28">
       <div>
         <span class="badge mb-7">🕐 The average fleet loses 12 hours per claim to paperwork</span>
         <h1 class="heading-1 mb-6 max-w-2xl text-balance text-5xl text-white sm:text-6xl lg:text-[4.25rem]">
           Stop Losing Money to Manual Claims.
-          <span class="gradient-word bg-clip-text text-transparent"> AI Does the Heavy Lifting.</span>
+          <span class="text-electric-600 dark:text-electric-400"> AI Does the Heavy Lifting.</span>
         </h1>
-        <p class="body-large mb-9 max-w-xl text-navy-200">Every day your team spends on paperwork, estimates, and adjuster calls is money leaking from your bottom line. FleetClaim AI cuts claim processing from days to minutes — with 99.7% accuracy.</p>
+        <p class="body-large mb-9 max-w-xl">Every day your team spends on paperwork, estimates, and adjuster calls is money leaking from your bottom line. FleetClaim AI cuts claim processing from days to minutes — with 99.7% accuracy.</p>
         <div class="flex flex-col gap-4 sm:flex-row">
           <a href="/contact" class="btn-primary px-7 py-4 text-base">Start Saving Today <span aria-hidden="true">→</span></a>
           <a href="#how-it-works" class="btn-secondary px-7 py-4 text-base">See How It Works</a>
         </div>
-        <div class="mt-10 flex flex-wrap gap-x-6 gap-y-3 text-sm font-medium text-navy-300">
+        <div class="mt-10 flex flex-wrap gap-x-6 gap-y-3 text-sm font-medium text-navy-600 dark:text-navy-300">
           <span>✓ No credit card required</span><span>✓ 14-day free trial</span><span>✓ 48-hour onboarding</span>
         </div>
       </div>
-      <div class="hero-grid relative rounded-3xl p-4 shadow-2xl shadow-electric-500/20 ring-1 ring-white/10 sm:p-7">
+      <div class="hero-grid relative rounded-3xl p-4 shadow-xl shadow-navy-900/10 ring-1 ring-navy-200 dark:shadow-black/30 dark:ring-navy-700 sm:p-7">
         <div class="absolute inset-0 rounded-3xl bg-electric-500/5 dark:bg-electric-400/5"></div>
-        <img src="/hero-illustration.png" alt="FleetClaim AI claims dashboard showing AI-powered damage analysis and estimate generation" class="relative z-10 w-full rounded-2xl shadow-2xl shadow-electric-500/25 ring-1 ring-white/20" />
+        <img src="/hero-illustration.png" alt="FleetClaim AI claims dashboard showing AI-powered damage analysis and estimate generation" class="relative z-10 w-full rounded-2xl shadow-lg shadow-navy-900/10 ring-1 ring-navy-200 dark:shadow-black/30 dark:ring-navy-700" />
       </div>
     </div>
   </section>
 
   <!-- 2. Pain-Point Stats Bar -->
-  <section class="dark-section dark-grid relative border-b border-white/10 py-14">
+  <section class="relative border-b border-navy-200/60 bg-navy-50 py-14 dark:border-navy-800/60 dark:bg-navy-900">
     <div class="section-inner">
       <p class="mb-10 text-center text-sm font-bold uppercase tracking-[0.2em] text-navy-400 dark:text-navy-500">The Hidden Cost of Manual Claims</p>
       <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
@@ -123,7 +123,7 @@ const objections = [
   </section>
 
   <!-- 4. Customer proof -->
-  <section class="dark-section dark-grid relative border-y border-white/10 py-20"><div class="section-inner"><div class="mx-auto mb-10 max-w-2xl text-center"><span class="badge mb-5">Trusted in the field</span><h2 class="heading-2 mb-4">Results that keep fleets moving</h2><p class="body-large">Real outcomes from teams using FleetClaim AI to modernize claims.</p></div><div class="grid gap-6 lg:grid-cols-3">{[{initials:"MR",name:"Michael R.",role:"Fleet Operations Director",company:"Apex Logistics",quote:"Reduced claims cycle from 7 days to under 4 hours. Saving $18k/month.",color:"bg-electric-600"},{initials:"ST",name:"Sarah T.",role:"Fleet Manager",company:"Metro Fleet",quote:"The AI damage analysis caught things our adjusters missed. Game-changer for our 200-vehicle fleet.",color:"bg-violet-600"},{initials:"JK",name:"James K.",role:"Operations Lead",company:"Coastal Transport",quote:"Onboarded in 2 days. ROI was visible in the first week.",color:"bg-emerald-600"}].map((t)=><figure class="glass-card flex h-full flex-col p-7"><div class="mb-5 flex items-center gap-3"><div class={`flex h-11 w-11 items-center justify-center rounded-full ${t.color} text-sm font-bold text-white`}>{t.initials}</div><figcaption><p class="font-semibold text-navy-900 dark:text-white">{t.name}</p><p class="text-xs text-navy-500 dark:text-navy-400">{t.role}, {t.company}</p></figcaption></div><blockquote class="flex-1 text-base font-medium leading-relaxed text-navy-700 dark:text-navy-200">“{t.quote}”</blockquote><div class="mt-6 text-sm tracking-widest text-amber-500">★★★★★</div></figure>)}</div><p class="mt-10 text-center text-sm font-bold text-electric-600 dark:text-electric-400">🚛 Join 200+ fleets already using FleetClaim AI</p></div></section>
+  <section class="relative border-y border-navy-200/60 bg-electric-50/50 py-20 dark:border-navy-800/60 dark:bg-navy-900/50"><div class="section-inner"><div class="mx-auto mb-10 max-w-2xl text-center"><span class="badge mb-5">Trusted in the field</span><h2 class="heading-2 mb-4">Results that keep fleets moving</h2><p class="body-large">Real outcomes from teams using FleetClaim AI to modernize claims.</p></div><div class="grid gap-6 lg:grid-cols-3">{[{initials:"MR",name:"Michael R.",role:"Fleet Operations Director",company:"Apex Logistics",quote:"Reduced claims cycle from 7 days to under 4 hours. Saving $18k/month.",color:"bg-electric-600"},{initials:"ST",name:"Sarah T.",role:"Fleet Manager",company:"Metro Fleet",quote:"The AI damage analysis caught things our adjusters missed. Game-changer for our 200-vehicle fleet.",color:"bg-violet-600"},{initials:"JK",name:"James K.",role:"Operations Lead",company:"Coastal Transport",quote:"Onboarded in 2 days. ROI was visible in the first week.",color:"bg-emerald-600"}].map((t)=><figure class="card flex h-full flex-col p-7"><div class="mb-5 flex items-center gap-3"><div class={`flex h-11 w-11 items-center justify-center rounded-full ${t.color} text-sm font-bold text-white`}>{t.initials}</div><figcaption><p class="font-semibold text-navy-900 dark:text-white">{t.name}</p><p class="text-xs text-navy-500 dark:text-navy-400">{t.role}, {t.company}</p></figcaption></div><blockquote class="flex-1 text-base font-medium leading-relaxed text-navy-700 dark:text-navy-200">“{t.quote}”</blockquote><div class="mt-6 text-sm tracking-widest text-amber-500">★★★★★</div></figure>)}</div><p class="mt-10 text-center text-sm font-bold text-electric-600 dark:text-electric-400">🚛 Join 200+ fleets already using FleetClaim AI</p></div></section>
 
   <!-- 5. How it works -->
   <section id="how-it-works" class="section relative overflow-hidden bg-gradient-to-b from-white to-navy-50/80 dark:from-navy-900 dark:to-navy-950">
@@ -154,7 +154,7 @@ const objections = [
   </section>
 
   <!-- 6. Product preview -->
-  <section class="dark-section dark-grid relative border-y border-white/10">
+  <section class="relative border-y border-navy-200/60 bg-navy-50 dark:border-navy-800/60 dark:bg-navy-900">
     <div class="section-inner">
       <div class="mx-auto mb-12 max-w-2xl text-center">
         <span class="badge mb-5">One source of truth</span>
@@ -172,7 +172,7 @@ const objections = [
 
   <!-- 7. Features -->
   <section class="section relative overflow-hidden bg-gradient-to-br from-navy-50 via-white to-electric-50/50 dark:from-navy-900 dark:via-navy-950 dark:to-navy-900">
-    <div class="ambient-orb -right-24 top-20 h-72 w-72 bg-electric-500/10" aria-hidden="true"></div><div class="section-inner">
+    <div class="section-inner">
       <div class="mb-14 flex flex-col justify-between gap-5 md:flex-row md:items-end">
         <div>
           <span class="badge mb-5">Built for operations</span>
@@ -183,7 +183,7 @@ const objections = [
       </div>
       <div class="grid gap-6 sm:grid-cols-2">
         {[{icon:"✦",title:"AI Damage Analysis",desc:"Identify damage type, severity, and affected parts from photos with consistent, explainable results."},{icon:"▤",title:"Smart Estimates",desc:"Generate detailed repair estimates with labor hours, parts pricing, and OEM procedures in seconds."},{icon:"↗",title:"Claim Tracking",desc:"Keep every claim moving with real-time status, ownership, and automated workflow handoffs."},{icon:"⌘",title:"Integrations",desc:"Connect the tools your team already trusts, from CCC ONE and Mitchell to QuickBooks and more."}].map((feature) => (
-          <div class="glass-card group p-7 sm:p-8">
+          <div class="card group p-7 sm:p-8">
             <div class="mb-6 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-electric-400 to-electric-700 text-xl font-bold text-white shadow-lg shadow-electric-500/20 transition-transform group-hover:scale-110">{feature.icon}</div>
             <h3 class="heading-3 mb-3">{feature.title}</h3>
             <p class="body-base mb-5">{feature.desc}</p>
@@ -195,7 +195,7 @@ const objections = [
   </section>
 
   <!-- 8. ROI Calculator Teaser -->
-  <section class="dark-section dark-grid relative border-y border-white/10 py-20">
+  <section class="relative border-y border-navy-200/60 bg-electric-50/50 py-20 dark:border-navy-800/60 dark:bg-navy-900/50">
     <div class="section-inner">
       <div class="mx-auto max-w-3xl">
         <div class="mb-8 text-center">
@@ -203,7 +203,7 @@ const objections = [
           <h2 class="heading-2 mb-4">How much could you save?</h2>
           <p class="body-large">Enter your monthly claim volume and see your estimated savings with FleetClaim AI.</p>
         </div>
-        <div class="glass-card overflow-hidden p-0">
+        <div class="card overflow-hidden p-0">
           <div class="p-8 sm:p-10">
             <label for="claims-input" class="mb-3 block text-sm font-semibold text-navy-700 dark:text-navy-200">
               How many claims do you process per month?
@@ -255,7 +255,7 @@ const objections = [
       </div>
       <div class="mx-auto grid max-w-3xl gap-4">
         {objections.map((obj) => (
-          <details class="glass-card group cursor-pointer overflow-hidden transition-all duration-200 hover:border-electric-300 dark:hover:border-electric-700">
+          <details class="card group cursor-pointer overflow-hidden transition-all duration-200 hover:border-electric-300 dark:hover:border-electric-700">
             <summary class="flex items-center gap-4 p-5 font-semibold text-navy-900 dark:text-white list-none">
               <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-navy-100 text-lg dark:bg-navy-800" aria-hidden="true">{obj.icon}</span>
               <span class="flex-1">{obj.question}</span>
@@ -287,7 +287,7 @@ const objections = [
   </section>
 
   <!-- 11. Trust Badges Bar -->
-  <section class="dark-section dark-grid relative border-b border-white/10 py-12">
+  <section class="relative border-b border-navy-200/60 bg-navy-50 py-12 dark:border-navy-800/60 dark:bg-navy-900">
     <div class="section-inner">
       <p class="mb-8 text-center text-xs font-bold uppercase tracking-[0.2em] text-navy-400 dark:text-navy-500">Trusted by fleet professionals</p>
       <div class="flex flex-wrap items-center justify-center gap-x-10 gap-y-4">
@@ -310,8 +310,8 @@ const objections = [
 
   <!-- 12. CTA -->
   <section class="section relative overflow-hidden bg-navy-50 dark:bg-navy-950">
-    <div class="ambient-orb -left-20 top-0 h-72 w-72 bg-electric-300/20" aria-hidden="true"></div><div class="section-inner">
-      <div class="dark-grid relative overflow-hidden rounded-3xl bg-gradient-to-br from-electric-600 via-electric-700 to-navy-950 px-6 py-20 text-center shadow-2xl shadow-electric-500/20 sm:px-12">
+    <div class="section-inner">
+      <div class="relative overflow-hidden rounded-3xl bg-gradient-to-br from-electric-600 via-electric-700 to-navy-950 px-6 py-20 text-center shadow-2xl shadow-electric-500/20 sm:px-12">
         <div class="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-white/10 blur-3xl" aria-hidden="true"></div>
         <div class="relative">
           <span class="badge mb-6 bg-white/15 text-white">Move claims forward</span>
