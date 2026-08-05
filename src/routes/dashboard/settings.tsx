@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
+import { sendSms } from "~/sms";
 
 export const Route = createFileRoute("/dashboard/settings")({
   component: SettingsPage,
@@ -60,6 +61,19 @@ function SettingsPage() {
 
 /* ── General Tab ────────────────────────────────────────────────── */
 function GeneralTab() {
+  const [smsEnabled, setSmsEnabled] = useState(true);
+  const [smsPhone, setSmsPhone] = useState("");
+  const [testStatus, setTestStatus] = useState("");
+
+  const handleTestSms = async () => {
+    if (!smsPhone) { setTestStatus("Enter the shop phone number first."); return; }
+    setTestStatus("Sending test message...");
+    try {
+      const result = await sendSms({ data: { recipient: smsPhone, message: "CollisionAI SMS notifications are working!" } });
+      setTestStatus(result.success ? "Test SMS sent successfully." : result.error);
+    } catch { setTestStatus("We couldn't send the test SMS right now."); }
+  };
+
   return (
     <div className="rounded-2xl border border-slate-700/50 bg-slate-800/50 p-6 sm:p-8">
       <h2 className="text-lg font-bold text-white">Shop Profile</h2>
@@ -111,10 +125,19 @@ function GeneralTab() {
         </div>
       </div>
 
+      <div className="mt-6 border-t border-slate-700/50 pt-6">
+        <h3 className="text-base font-bold text-white">SMS Notifications</h3>
+        <p className="mt-1 text-sm text-slate-400">Send estimate explanations and repair updates by text.</p>
+        <div className="mt-4 flex items-center justify-between rounded-xl border border-slate-700 bg-slate-800 px-4 py-3">
+          <div><p className="text-sm font-medium text-slate-200">Enable SMS notifications</p><p className="text-xs text-slate-500">You can turn texting off at any time.</p></div>
+          <button type="button" role="switch" aria-checked={smsEnabled} onClick={() => setSmsEnabled(!smsEnabled)} className={`relative h-6 w-11 rounded-full transition ${smsEnabled ? "bg-orange-500" : "bg-slate-600"}`}><span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition ${smsEnabled ? "left-6" : "left-1"}`} /></button>
+        </div>
+        <label className="mt-4 block text-sm font-medium text-slate-300">Shop outgoing phone number</label>
+        <input type="tel" value={smsPhone} onChange={(e) => setSmsPhone(e.target.value)} placeholder="+15551234567" className="mt-1.5 w-full rounded-xl border border-slate-600 bg-slate-800 px-4 py-2.5 text-white placeholder-slate-500 outline-none focus:border-orange-500" />
+        <div className="mt-3 flex flex-wrap items-center gap-3"><button type="button" onClick={handleTestSms} disabled={!smsEnabled} className="rounded-xl border border-slate-600 px-4 py-2.5 text-sm font-medium text-slate-300 hover:border-orange-500 hover:text-white disabled:opacity-40">Test SMS</button>{testStatus && <span className={`text-sm ${testStatus.includes("success") ? "text-emerald-400" : "text-slate-400"}`}>{testStatus}</span>}</div>
+      </div>
       <div className="mt-6">
-        <button className="rounded-xl bg-orange-500 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-orange-500/25 transition hover:bg-orange-600">
-          Save Changes
-        </button>
+        <button className="rounded-xl bg-orange-500 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-orange-500/25 transition hover:bg-orange-600">Save Changes</button>
       </div>
     </div>
   );

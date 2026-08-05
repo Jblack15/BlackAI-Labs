@@ -34,6 +34,16 @@ CREATE TABLE IF NOT EXISTS conversations (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- SMS delivery attempts
+CREATE TABLE IF NOT EXISTS sms_logs (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id),
+  recipient VARCHAR(32) NOT NULL,
+  message TEXT NOT NULL,
+  status VARCHAR(50) NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Messages within conversations
 CREATE TABLE IF NOT EXISTS messages (
   id SERIAL PRIMARY KEY,

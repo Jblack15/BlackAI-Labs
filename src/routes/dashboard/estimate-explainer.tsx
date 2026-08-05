@@ -6,6 +6,7 @@ import { explainEstimate as callAI, MissingApiKeyError, RateLimitError } from "~
 import { sql } from "~/db";
 import { getSessionFromRequest } from "~/auth";
 import { getStartContext } from "@tanstack/start-storage-context";
+import { sendSms } from "~/sms";
 
 /* ── Sample estimate text ────────────────────────────────────────── */
 const SAMPLE_ESTIMATE = `R&I Front Bumper Assembly - 2.5 hrs
@@ -140,6 +141,8 @@ function EstimateExplainerPage() {
   const [result, setResult] = useState<ExplanationResult | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [copied, setCopied] = useState(false);
+  const [smsStatus, setSmsStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [smsMessage, setSmsMessage] = useState("");
   const [inputMode, setInputMode] = useState<"text" | "pdf">("text");
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [pdfError, setPdfError] = useState("");
@@ -189,6 +192,22 @@ function EstimateExplainerPage() {
     setResult(null);
     setErrorMsg("");
   }, []);
+
+  const handleSendSms = useCallback(async () => {
+    if (!result || smsStatus === "sending") return;
+    const recipient = window.prompt("Customer phone number (include country code, e.g. +15551234567):");
+    if (!recipient) return;
+    setSmsStatus("sending");
+    setSmsMessage("");
+    try {
+      const data = await sendSms({ data: { recipient, message: result.explanation } });
+      if (data.success) { setSmsStatus("sent"); setSmsMessage("Text sent successfully."); }
+      else { setSmsStatus("error"); setSmsMessage(data.error); }
+    } catch (error: any) {
+      setSmsStatus("error");
+      setSmsMessage(error?.message || "We couldn't send that text right now.");
+    }
+  }, [result, smsStatus]);
 
   const handleCopy = useCallback(async () => {
     if (!result) return;
@@ -402,7 +421,16 @@ function EstimateExplainerPage() {
                   </>
                 )}
               </button>
+              <button
+                type="button"
+                onClick={handleSendSms}
+                disabled={smsStatus === "sending"}
+                className="inline-flex items-center gap-2 rounded-lg border border-orange-500/50 bg-orange-500/10 px-4 py-2 text-sm font-medium text-orange-300 hover:bg-orange-500/20 transition disabled:opacity-50"
+              >
+                {smsStatus === "sending" ? "Sending..." : "📱 Send via SMS"}
+              </button>
             </div>
+            {smsMessage && <p className={`mt-2 text-sm ${smsStatus === "error" ? "text-red-400" : "text-emerald-400"}`}>{smsMessage}</p>}
 
             {/* Disclaimer */}
             <p className="mt-4 text-xs text-slate-600 leading-relaxed">
