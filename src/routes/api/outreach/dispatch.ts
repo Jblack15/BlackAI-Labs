@@ -8,8 +8,8 @@
 //
 // Response: { processed: N, sent: N, failed: N, errors: [...] }
 //
-// Callable by any cron system (GET or POST, no auth token required — same as
-// the rest of the public site; the endpoint is idempotent and never crashes).
+// Callable by cron systems via GET or POST. When CRON_SECRET is configured, callers
+// must provide the matching ?token= value; without it, access remains backward compatible.
 
 import { createFileRoute } from "@tanstack/react-router";
 import { dispatchDueOutreach } from "~/lib/outreach-dispatcher";
@@ -19,6 +19,10 @@ import { dispatchDueOutreach } from "~/lib/outreach-dispatcher";
 async function run({ request }: { request: Request }): Promise<Response> {
   try {
     const url = new URL(request.url);
+    const cronSecret = process.env.CRON_SECRET;
+    if (cronSecret && url.searchParams.get("token") !== cronSecret) {
+      return Response.json({ error: "Unauthorized" }, { status: 401, headers: { "Cache-Control": "no-store" } });
+    }
     // Number(null) is 0 (finite!), which would clamp the limit to 1 — treat a
     // missing/empty param as "use the default".
     const rawParam = url.searchParams.get("limit");

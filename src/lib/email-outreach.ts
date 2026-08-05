@@ -10,6 +10,9 @@ import { sql } from "~/db";
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SITE_URL = process.env.SITE_URL || "https://6bb790b5d4bbac352680a157949e23cb.ctonew.app";
+// One-click opt-out destination. Replace with the production unsubscribe handler when available.
+const UNSUBSCRIBE_URL = "mailto:dealforge-properties-8480c335@ctomail.io?subject=Unsubscribe";
+const UNSUBSCRIBE_TEXT = `To unsubscribe, reply STOP or click here: ${UNSUBSCRIBE_URL}`;
 
 export interface EmailTemplate {
   subject: (name: string, address: string) => string;
@@ -26,6 +29,7 @@ function ctaButton(label: string, url: string): string {
 }
 
 function emailShell(bodyHtml: string, preview: string): string {
+  const unsubscribeHtml = `<p style="margin:16px 0 0;font-size:12px;color:#7c93b5;">To unsubscribe, reply STOP or <a href="${UNSUBSCRIBE_URL}" style="color:#f59e0b;">click here</a>.</p>`;
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>DealFlow AI</title></head>
 <body style="margin:0;padding:0;background:#0a1628;">
@@ -40,6 +44,7 @@ function emailShell(bodyHtml: string, preview: string): string {
         <tr><td style="padding:16px 32px;font-family:Arial,sans-serif;font-size:15px;line-height:1.65;color:#dbe7f5;">
           ${bodyHtml}
           <p style="margin:28px 0 0;padding-top:16px;border-top:1px solid #1e3a5f;font-size:12px;color:#7c93b5;">DealFlow AI · San Antonio, TX · <a href="${SITE_URL}" style="color:#f59e0b;">${SITE_URL}</a></p>
+          ${unsubscribeHtml}
         </td></tr>
       </table>
     </td></tr>
@@ -178,6 +183,10 @@ export const EMAIL_SEQUENCE: EmailTemplate[] = [
 
 // --- Sending -----------------------------------------------------------------
 
+function withUnsubscribeText(text: string): string {
+  return `${text}\n\n${UNSUBSCRIBE_TEXT}`;
+}
+
 async function logEmail(opts: {
   leadId?: string;
   to: string;
@@ -216,6 +225,8 @@ export async function sendEmail(opts: {
   const host = process.env.SMTP_HOST;
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
+  // Bulk email is restricted to verified/consented contacts (form submitters),
+  // never every lead merely because a record contains an email address.
   if (!host || !user || !pass) {
     await logEmail({ leadId: opts.leadId, to: opts.to, subject: opts.subject, body: opts.html, status: "failed", error: "Email not configured" });
     return { success: false, error: "Email not configured — add SMTP_HOST, SMTP_USER, SMTP_PASS (optionally SMTP_PORT, EMAIL_FROM)" };
@@ -235,7 +246,7 @@ export async function sendEmail(opts: {
       to: opts.to,
       subject: opts.subject,
       html: opts.html,
-      text: opts.text,
+      text: withUnsubscribeText(opts.text || ""),
     });
     await logEmail({ leadId: opts.leadId, to: opts.to, subject: opts.subject, body: opts.html, status: "sent", providerId: info.messageId });
     return { success: true, messageId: info.messageId };
