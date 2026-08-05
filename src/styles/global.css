@@ -8,7 +8,7 @@
 }
 @custom-variant dark (&:where(.dark, .dark *));
 @layer base {
- html{scroll-behavior:smooth;-webkit-font-smoothing:antialiased} body{@apply bg-white text-navy-900 dark:bg-navy-950 dark:text-navy-50 font-sans;transition:background-color .3s,color .3s} :focus-visible{@apply outline-2 outline-offset-2 outline-electric-500;outline-style:solid} .skip-to-content{@apply sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-[100] focus:bg-electric-500 focus:text-white focus:px-4 focus:py-2 focus:rounded-lg focus:shadow-lg}
+ html{scroll-behavior:smooth;-webkit-font-smoothing:antialiased} body{@apply bg-electric-50 text-navy-900 dark:bg-navy-950 dark:text-navy-50 font-sans;transition:background-color .3s,color .3s} :focus-visible{@apply outline-2 outline-offset-2 outline-electric-500;outline-style:solid} .skip-to-content{@apply sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-[100] focus:bg-electric-500 focus:text-white focus:px-4 focus:py-2 focus:rounded-lg focus:shadow-lg}
 }
 @layer components {
  .btn-primary{@apply inline-flex items-center justify-center gap-2 rounded-lg px-6 py-3 text-sm font-semibold text-white transition-all duration-300 bg-electric-500 hover:bg-electric-600 hover:shadow-lg hover:shadow-electric-500/25 active:scale-[.98]}

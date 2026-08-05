@@ -47,7 +47,7 @@ const objections = [
   </div>
 
   <!-- 1. Hero — Pain → Agitation → Solution -->
-  <section id="hero" class="relative overflow-hidden border-b border-navy-200/60 bg-gradient-to-br from-white via-white to-electric-50 dark:border-navy-800/60 dark:from-navy-950 dark:via-navy-950 dark:to-navy-900">
+  <section id="hero" class="relative overflow-hidden border-b border-navy-200/60 bg-gradient-to-br from-electric-50 via-electric-50 to-navy-50 dark:border-navy-800/60 dark:from-navy-950 dark:via-navy-950 dark:to-navy-900">
     
     <div class="section-inner relative grid items-center gap-12 py-20 sm:py-24 lg:grid-cols-[1fr_1.05fr] lg:gap-16 lg:py-28">
       <div>
@@ -89,7 +89,7 @@ const objections = [
   </section>
 
   <!-- 3. Before / After Comparison -->
-  <section class="section relative overflow-hidden bg-gradient-to-br from-white via-white to-electric-50/70 dark:from-navy-950 dark:via-navy-950 dark:to-navy-900">
+  <section class="section relative overflow-hidden bg-gradient-to-br from-electric-50 via-electric-50 to-navy-50/70 dark:from-navy-950 dark:via-navy-950 dark:to-navy-900">
     <div class="section-inner">
       <div class="mb-14 max-w-2xl">
         <span class="badge mb-5">The difference is clear</span>
@@ -126,7 +126,7 @@ const objections = [
   <section class="relative border-y border-navy-200/60 bg-electric-50/50 py-20 dark:border-navy-800/60 dark:bg-navy-900/50"><div class="section-inner"><div class="mx-auto mb-10 max-w-2xl text-center"><span class="badge mb-5">Trusted in the field</span><h2 class="heading-2 mb-4">Results that keep fleets moving</h2><p class="body-large">Real outcomes from teams using FleetClaim AI to modernize claims.</p></div><div class="grid gap-6 lg:grid-cols-3">{[{initials:"MR",name:"Michael R.",role:"Fleet Operations Director",company:"Apex Logistics",quote:"Reduced claims cycle from 7 days to under 4 hours. Saving $18k/month.",color:"bg-electric-600"},{initials:"ST",name:"Sarah T.",role:"Fleet Manager",company:"Metro Fleet",quote:"The AI damage analysis caught things our adjusters missed. Game-changer for our 200-vehicle fleet.",color:"bg-violet-600"},{initials:"JK",name:"James K.",role:"Operations Lead",company:"Coastal Transport",quote:"Onboarded in 2 days. ROI was visible in the first week.",color:"bg-emerald-600"}].map((t)=><figure class="card flex h-full flex-col p-7"><div class="mb-5 flex items-center gap-3"><div class={`flex h-11 w-11 items-center justify-center rounded-full ${t.color} text-sm font-bold text-white`}>{t.initials}</div><figcaption><p class="font-semibold text-navy-900 dark:text-white">{t.name}</p><p class="text-xs text-navy-500 dark:text-navy-400">{t.role}, {t.company}</p></figcaption></div><blockquote class="flex-1 text-base font-medium leading-relaxed text-navy-700 dark:text-navy-200">“{t.quote}”</blockquote><div class="mt-6 text-sm tracking-widest text-amber-500">★★★★★</div></figure>)}</div><p class="mt-10 text-center text-sm font-bold text-electric-600 dark:text-electric-400">🚛 Join 200+ fleets already using FleetClaim AI</p></div></section>
 
   <!-- 5. How it works -->
-  <section id="how-it-works" class="section relative overflow-hidden bg-gradient-to-b from-white to-navy-50/80 dark:from-navy-900 dark:to-navy-950">
+  <section id="how-it-works" class="section relative overflow-hidden bg-gradient-to-b from-electric-50 to-navy-50/80 dark:from-navy-900 dark:to-navy-950">
     <div class="absolute bottom-0 left-0 h-72 w-72 rounded-full bg-electric-500/5 blur-3xl" aria-hidden="true"></div>
     <div class="section-inner relative">
       <div class="mb-14 max-w-2xl">
@@ -171,7 +171,7 @@ const objections = [
   </section>
 
   <!-- 7. Features -->
-  <section class="section relative overflow-hidden bg-gradient-to-br from-navy-50 via-white to-electric-50/50 dark:from-navy-900 dark:via-navy-950 dark:to-navy-900">
+  <section class="section relative overflow-hidden bg-gradient-to-br from-navy-50 via-electric-50 to-navy-50/50 dark:from-navy-900 dark:via-navy-950 dark:to-navy-900">
     <div class="section-inner">
       <div class="mb-14 flex flex-col justify-between gap-5 md:flex-row md:items-end">
         <div>
@@ -246,7 +246,7 @@ const objections = [
   </section>
 
   <!-- 9. Objection Handling -->
-  <section class="section relative overflow-hidden bg-white dark:bg-navy-900">
+  <section class="section relative overflow-hidden">
     <div class="section-inner">
       <div class="mb-14 max-w-2xl">
         <span class="badge mb-5">Your questions, answered</span>
@@ -275,7 +275,7 @@ const objections = [
   </section>
 
   <!-- 10. Integrations -->
-  <section class="relative border-y border-navy-200/60 bg-gradient-to-b from-white to-electric-50/60 py-16 dark:border-navy-800/60 dark:from-navy-950 dark:to-navy-900">
+  <section class="relative border-y border-navy-200/60 bg-gradient-to-b from-electric-50 to-navy-50/60 py-16 dark:border-navy-800/60 dark:from-navy-950 dark:to-navy-900">
     <div class="section-inner text-center">
       <p class="mb-8 text-sm font-semibold text-navy-500 dark:text-navy-400">Integrates with your existing tools</p>
       <div class="flex flex-wrap justify-center gap-3">
@@ -327,7 +327,7 @@ const objections = [
   </section>
 
   <!-- Mobile sticky CTA -->
-  <div class="mobile-cta-bar fixed bottom-0 left-0 right-0 z-40 border-t border-navy-200/60 bg-white/95 px-4 py-3 backdrop-blur-xl dark:border-navy-800/60 dark:bg-navy-950/95 sm:hidden">
+  <div class="mobile-cta-bar fixed bottom-0 left-0 right-0 z-40 border-t border-navy-200/60 bg-electric-50/95 px-4 py-3 backdrop-blur-xl dark:border-navy-800/60 dark:bg-navy-950/95 sm:hidden">
     <a href="/contact" class="btn-primary w-full py-3 text-base font-bold">Get Started Free →</a>
   </div>
 </BaseLayout>
