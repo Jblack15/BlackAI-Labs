@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { useState, useMemo, useEffect } from "react";
+import type { PostcardCampaign } from "~/lib/postcard-templates";
 
 // --- Types ---
 interface Lead {
@@ -73,6 +74,17 @@ const SOURCE_LABELS: Record<string, string> = {
   eviction: "Eviction",
   "expired-listing": "Expired Listing",
 };
+
+// Direct-mail postcard campaigns (Click2Mail). "auto" maps each lead to the
+// campaign matching its lead_source (see lib/postcard-templates.ts).
+const MAIL_CAMPAIGNS = ["general", "pre-foreclosure", "probate", "tax-delinquent"] as const;
+const MAIL_CAMPAIGN_LABELS: Record<string, string> = {
+  general: "General",
+  "pre-foreclosure": "Pre-Foreclosure",
+  probate: "Probate / Inherited",
+  "tax-delinquent": "Tax Delinquent",
+};
+const MAIL_COST_PER_PIECE = 0.6;
 
 // --- Mock Data ---
 const MOCK_LEADS: Lead[] = [
@@ -406,6 +418,41 @@ const sendManualSms = createServerFn({ method: "POST" })
     }
   });
 
+// --- Direct mail (Click2Mail) ---
+const resolveMailCampaign = (campaign?: string): PostcardCampaign | undefined =>
+  campaign && (MAIL_CAMPAIGNS as readonly string[]).includes(campaign)
+    ? (campaign as PostcardCampaign)
+    : undefined;
+
+const sendMailToLead = createServerFn({ method: "POST" })
+  .validator((data: unknown) => {
+    const d = data as { leadId: string; campaign?: string };
+    if (!d.leadId) throw new Error("leadId is required");
+    return d;
+  })
+  .handler(async ({ data }) => {
+    try {
+      const { sendPostcardsToLeads } = await import("~/lib/click2mail");
+      return await sendPostcardsToLeads([data.leadId], { campaign: resolveMailCampaign(data.campaign) });
+    } catch (e) {
+      return { success: false, sent: 0, failed: 0, error: e instanceof Error ? e.message : "Direct mail failed" };
+    }
+  });
+
+const bulkSendMail = createServerFn({ method: "POST" })
+  .validator((data: unknown) => {
+    const d = data as { ids?: string[]; campaign?: string };
+    return { ids: Array.isArray(d?.ids) ? d.ids : [], campaign: d?.campaign };
+  })
+  .handler(async ({ data }) => {
+    try {
+      const { sendPostcardsToLeads } = await import("~/lib/click2mail");
+      return await sendPostcardsToLeads(data.ids, { campaign: resolveMailCampaign(data.campaign) });
+    } catch (e) {
+      return { success: false, sent: 0, failed: 0, error: e instanceof Error ? e.message : "Bulk direct mail failed" };
+    }
+  });
+
 // --- Format Helpers ---
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr);
@@ -492,6 +539,8 @@ function LeadDetailModal({
   smsResult,
   onSkipTrace,
   onStartOutreach,
+  onStartEmailOutreach,
+  onSendMail,
   automationBusy,
 }: {
   lead: Lead;
@@ -504,9 +553,11 @@ function LeadDetailModal({
   onSkipTrace: (id: string) => void;
   onStartOutreach: (id: string) => void;
   onStartEmailOutreach: (id: string) => void;
+  onSendMail: (leadId: string, campaign?: string) => void;
   automationBusy: boolean;
 }) {
   const [smsMessage, setSmsMessage] = useState("");
+  const [mailCampaign, setMailCampaign] = useState("auto");
 
   // Pre-populate SMS message based on lead status
   const defaultMessages: Record<string, string> = {
@@ -528,6 +579,22 @@ function LeadDetailModal({
   const handleSendSms = () => {
     if (!smsMessage.trim()) return;
     onSendSms(lead.id, smsMessage.trim());
+  };
+
+  const hasMailAddress = !!(
+    lead.property_address && lead.property_city && lead.property_state && lead.property_zip
+  );
+
+  const handleSendMail = () => {
+    if (!hasMailAddress) return;
+    const campaignLabel =
+      mailCampaign === "auto"
+        ? "Auto (matches lead source)"
+        : MAIL_CAMPAIGN_LABELS[mailCampaign] || mailCampaign;
+    const confirmed = window.confirm(
+      `Send a 6×9 postcard to ${lead.full_name} at ${lead.property_address}, ${lead.property_city}, ${lead.property_state} ${lead.property_zip}?\n\nTemplate: ${campaignLabel}\nEstimated cost: ${MAIL_COST_PER_PIECE.toFixed(2)} (print + first-class postage).`,
+    );
+    if (confirmed) onSendMail(lead.id, mailCampaign === "auto" ? undefined : mailCampaign);
   };
 
   return (
@@ -563,6 +630,31 @@ function LeadDetailModal({
             <button onClick={() => onSkipTrace(lead.id)} disabled={automationBusy} className="rounded-lg border border-teal-500/30 bg-teal-500/10 px-4 py-2 text-sm font-medium text-teal-300 disabled:opacity-50">Skip Trace</button>
             <button onClick={() => onStartOutreach(lead.id)} disabled={automationBusy || !lead.phone} className="rounded-lg border border-gold-500/30 bg-gold-500/10 px-4 py-2 text-sm font-medium text-gold-300 disabled:opacity-50">Start SMS Outreach</button>
             <button onClick={() => onStartEmailOutreach(lead.id)} disabled={automationBusy || !lead.email} title={!lead.email ? "Lead has no email address" : "Send email 1 now, schedule follow-ups on days 1, 3, 5, 10"} className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-sm font-medium text-blue-300 disabled:opacity-50">Start Email Outreach</button>
+            <select
+              value={mailCampaign}
+              onChange={(e) => setMailCampaign(e.target.value)}
+              title="Postcard template"
+              className="rounded-lg border border-navy-700 bg-navy-900 px-2 py-2 text-sm text-gray-300 focus:border-gold-500 focus:outline-none"
+            >
+              <option value="auto">Mail: Auto (by source)</option>
+              {MAIL_CAMPAIGNS.map((c) => (
+                <option key={c} value={c}>
+                  Mail: {MAIL_CAMPAIGN_LABELS[c]}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={handleSendMail}
+              disabled={automationBusy || !hasMailAddress}
+              title={
+                hasMailAddress
+                  ? `Send a 6×9 postcard (~${MAIL_COST_PER_PIECE.toFixed(2)}/piece) via Click2Mail`
+                  : "Lead is missing a mailing address"
+              }
+              className="rounded-lg border border-purple-500/30 bg-purple-500/10 px-4 py-2 text-sm font-medium text-purple-300 disabled:opacity-50"
+            >
+              Send Mail
+            </button>
             <Link
               to="/calculator"
               className="rounded-lg bg-gold-500 px-4 py-2 text-sm font-semibold text-navy-900 transition-colors hover:bg-gold-400"
@@ -939,6 +1031,8 @@ function CrmPage() {
   const runSkipTrace = async (ids?: string[]) => { setAutomationBusy(true); try { const result = await skipTrace({ data: { ids } }); if (!result.success) alert(result.error); else alert(`Skip trace complete: ${result.updated} lead(s) enriched.`); if (result.success && ids?.[0]) { const refreshed = await fetchLeads(); setLeads(refreshed); setSelectedLead(refreshed.find((l) => l.id === ids[0]) || null); } } catch { alert("Skip trace failed"); } finally { setAutomationBusy(false); } };
   const runOutreach = async (id: string) => { setAutomationBusy(true); try { const result = await startOutreach({ data: { leadId: id } }); if (!result.success) alert(result.error); else alert("SMS outreach started."); } catch { alert("Outreach failed"); } finally { setAutomationBusy(false); } };
   const runEmailOutreach = async (id: string) => { setAutomationBusy(true); try { const result = await startEmailOutreach({ data: { leadId: id } }); if (!result.success) alert(result.error); else alert(`Email outreach started — Email 1 sent, ${result.scheduled || 4} follow-ups scheduled.`); } catch { alert("Email outreach failed"); } finally { setAutomationBusy(false); } };
+  const runSendMail = async (id: string, campaign?: string) => { setAutomationBusy(true); try { const result = await sendMailToLead({ data: { leadId: id, campaign } }); if (!result.success) alert(result.error || "Direct mail failed"); else alert(`Postcard submitted to Click2Mail — ${result.sent} piece(s) queued.`); } catch { alert("Direct mail failed"); } finally { setAutomationBusy(false); } };
+  const runBulkSendMail = async (ids: string[]) => { setAutomationBusy(true); try { const result = await bulkSendMail({ data: { ids } }); if (!result.success) alert(result.error || "Bulk direct mail failed"); else alert(`Direct mail submitted — ${result.sent} postcard(s) queued.`); } catch { alert("Bulk direct mail failed"); } finally { setAutomationBusy(false); } };
 
   // Load leads from server (falls back to mock data)
   useEffect(() => {
@@ -1051,6 +1145,19 @@ function CrmPage() {
               <button onClick={() => runSkipTrace()} disabled={automationBusy} className="rounded-lg border border-teal-500/30 bg-teal-500/10 px-3 py-2 text-sm font-medium text-teal-300 disabled:opacity-50">{automationBusy ? "Working..." : "Skip Trace All"}</button>
               <button onClick={async () => { setAutomationBusy(true); try { const result = await bulkOutreach(); if (!result.success) alert(result.error); else alert(`Started SMS outreach for ${result.started} qualified lead(s).`); } finally { setAutomationBusy(false); } }} disabled={automationBusy} className="rounded-lg border border-gold-500/30 bg-gold-500/10 px-3 py-2 text-sm font-medium text-gold-300 disabled:opacity-50">Bulk SMS Outreach</button>
               <button onClick={async () => { setAutomationBusy(true); try { const result = await bulkEmailOutreach(); if (!result.success) alert(result.error); else alert(`Started email outreach for ${result.started} qualified lead(s).`); } finally { setAutomationBusy(false); } }} disabled={automationBusy} className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-sm font-medium text-blue-300 disabled:opacity-50">Bulk Email Outreach</button>
+              <button
+                onClick={async () => {
+                  const count = visibleLeads.length;
+                  if (!count) { alert("No leads match the current filters."); return; }
+                  const cost = (count * MAIL_COST_PER_PIECE).toFixed(2);
+                  if (!window.confirm(`Send ${count} postcard${count === 1 ? "" : "s"} to the currently filtered lead${count === 1 ? "" : "s"}?\n\nTemplate: auto-matched to each lead's source.\nEstimated cost: ${cost} (~${MAIL_COST_PER_PIECE.toFixed(2)}/piece, 6×9 + first-class postage).`)) return;
+                  await runBulkSendMail(visibleLeads.map((l) => l.id));
+                }}
+                disabled={automationBusy}
+                className="rounded-lg border border-purple-500/30 bg-purple-500/10 px-3 py-2 text-sm font-medium text-purple-300 disabled:opacity-50"
+              >
+                Bulk Direct Mail
+              </button>
             </div>
 
             {/* View Toggle */}
@@ -1157,6 +1264,7 @@ function CrmPage() {
           onSkipTrace={(id) => runSkipTrace([id])}
           onStartOutreach={runOutreach}
           onStartEmailOutreach={runEmailOutreach}
+          onSendMail={runSendMail}
           automationBusy={automationBusy}
         />
       )}
