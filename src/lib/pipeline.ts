@@ -2,10 +2,11 @@
 // Server-only: use only inside createServerFn handlers or API routes.
 // Owns stage transitions, the pipeline_events audit trail, and automation rules.
 import { sql } from "~/db";
+import { VALID_TRANSITIONS, validNextStages } from "./pipeline-transitions";
 
 // Valid transitions map (defined in the pure module so the client can import
 // it without pulling in the database layer).
-export { VALID_TRANSITIONS, validNextStages } from "./pipeline-transitions";
+export { VALID_TRANSITIONS, validNextStages };
 
 export interface TransitionResult {
   success: boolean;
