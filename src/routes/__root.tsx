@@ -11,10 +11,10 @@ import { Header } from "~/components/Header";
 import { Footer } from "~/components/Footer";
 import appCss from "~/styles/app.css?url";
 
-const SITE_URL = "https://dealflowai.com";
-const SITE_TITLE = "DealFlow AI — Sell Your House Fast For Cash";
+const SITE_URL = "https://6bb790b5d4bbac352680a157949e23cb.ctonew.app";
+const SITE_TITLE = "DealForge Properties — Sell Your House Fast For Cash";
 const SITE_DESCRIPTION =
-  "Get a fair cash offer for your home in 24 hours. Close in 7 days. No repairs, no agents, no commissions. DealFlow AI makes selling simple.";
+  "Get a fair cash offer for your home in 24 hours. Close in 7 days. No repairs, no agents, no commissions. DealForge Properties makes selling simple.";
 const OG_IMAGE = `${SITE_URL}/og-image.png`;
 
 export const Route = createRootRoute({

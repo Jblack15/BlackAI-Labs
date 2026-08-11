@@ -9,8 +9,42 @@ if (!DATABASE_URL) {
 
 const sql = neon(DATABASE_URL);
 
+// Canonical pipeline stages (matches migration 008 seed — kept in sync here so
+// `bun run src/db/seed.ts` fully reproduces the pipeline on a fresh DB).
+const PIPELINE_STAGES = [
+  { name: "new_lead", display_order: 1, color: "slate", description: "Lead captured from any source, awaiting enrichment." },
+  { name: "property_enrichment", display_order: 2, color: "blue", description: "Owner, property and lien data being enriched/skip-traced." },
+  { name: "ai_qualification", display_order: 3, color: "cyan", description: "AI agent scoring motivation, equity and distress signals." },
+  { name: "seller_contacted", display_order: 4, color: "purple", description: "First outreach sent to the seller." },
+  { name: "follow_up", display_order: 5, color: "violet", description: "Nurturing the seller across the follow-up sequence." },
+  { name: "deal_analysis", display_order: 6, color: "teal", description: "ARV, repairs and MAO being calculated by the deal analyst." },
+  { name: "offer_recommendation", display_order: 7, color: "indigo", description: "AI recommends an offer range for human review." },
+  { name: "human_approval", display_order: 8, color: "amber", description: "Offer awaiting human approval gate." },
+  { name: "offer_sent", display_order: 9, color: "orange", description: "Approved offer presented to the seller." },
+  { name: "negotiation", display_order: 10, color: "pink", description: "Back-and-forth with the seller on price and terms." },
+  { name: "contract_prepared", display_order: 11, color: "sky", description: "Contract drafted for the agreed terms." },
+  { name: "contract_sent", display_order: 12, color: "fuchsia", description: "Contract sent to the seller for signature." },
+  { name: "contract_signed", display_order: 13, color: "emerald", description: "Signed contract in hand — deal is under contract." },
+  { name: "buyer_matching", display_order: 14, color: "lime", description: "Matching the contract to cash buyers in the database." },
+  { name: "buyer_contacted", display_order: 15, color: "green", description: "Buyer engaged on the assignment." },
+  { name: "assignment", display_order: 16, color: "gold", description: "Assignment agreement signed with the end buyer." },
+  { name: "closing", display_order: 17, color: "yellow", description: "Title/escrow working toward close." },
+  { name: "closed_won", display_order: 18, color: "gold", description: "Deal closed — profit captured." },
+  { name: "closed_lost", display_order: 19, color: "red", description: "Deal fell through or was abandoned." },
+];
+
 async function main() {
   console.log("Seeding database...");
+
+  // Seed pipeline stages (idempotent)
+  for (const stage of PIPELINE_STAGES) {
+    await sql`
+      INSERT INTO pipeline_stages (name, display_order, description, color)
+      VALUES (${stage.name}, ${stage.display_order}, ${stage.description}, ${stage.color})
+      ON CONFLICT (name) DO NOTHING
+    `;
+  }
+  console.log(`Inserted ${PIPELINE_STAGES.length} pipeline stages`);
 
   // Seed leads (10 mock leads from CRM)
   const leads = [
