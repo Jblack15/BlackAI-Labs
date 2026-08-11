@@ -137,6 +137,14 @@ interface DashboardMetrics {
   bySource: { source: string; count: number }[];
 }
 
+interface AutomationMetrics {
+  leadsEnriched: number;
+  smsSentToday: number;
+  emailsSentToday: number;
+  pendingOutreach: number;
+  responsesReceived: number;
+}
+
 interface NotificationItem {
   id: string;
   type: string;
@@ -176,11 +184,29 @@ const fetchDashboardMetrics = createServerFn({ method: "GET" }).handler(async ()
   }
 });
 
+const fetchAutomationMetrics = createServerFn({ method: "GET" }).handler(async (): Promise<AutomationMetrics> => {
+  const zeroes: AutomationMetrics = { leadsEnriched: 0, smsSentToday: 0, emailsSentToday: 0, pendingOutreach: 0, responsesReceived: 0 };
+  try {
+    const { sql } = await import("~/db");
+    const [enriched, smsToday, emailsToday, pending, responded] = await Promise.all([
+      sql`SELECT COUNT(*)::int AS count FROM leads WHERE enriched_at IS NOT NULL`,
+      sql`SELECT COUNT(*)::int AS count FROM sms_logs WHERE status = 'sent' AND created_at >= date_trunc('day', now())`,
+      sql`SELECT COUNT(*)::int AS count FROM email_logs WHERE status = 'sent' AND created_at >= date_trunc('day', now())`,
+      sql`SELECT COUNT(*)::int AS count FROM outreach_sequences WHERE status IN ('scheduled', 'pending')`,
+      sql`SELECT COUNT(*)::int AS count FROM leads WHERE response_at IS NOT NULL`,
+    ]);
+    const n = (rows: { count: number }[]) => rows[0]?.count ?? 0;
+    return { leadsEnriched: n(enriched), smsSentToday: n(smsToday), emailsSentToday: n(emailsToday), pendingOutreach: n(pending), responsesReceived: n(responded) };
+  } catch {
+    return zeroes;
+  }
+});
+
 const fetchNotifications = createServerFn({ method: "GET" }).handler(async (): Promise<NotificationItem[]> => {
   try {
     const { sql } = await import("~/db");
     const rows = await sql`
-      SELECT id, type, title, body, is_read, created_at
+      SELECT id, type, title, message AS body, read AS is_read, created_at
       FROM notifications
       ORDER BY created_at DESC
       LIMIT 20
@@ -485,12 +511,24 @@ function DashboardPage() {
     byStatus: {},
     bySource: [],
   });
+  const [automation, setAutomation] = useState<AutomationMetrics>({
+    leadsEnriched: 0,
+    smsSentToday: 0,
+    emailsSentToday: 0,
+    pendingOutreach: 0,
+    responsesReceived: 0,
+  });
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
   useEffect(() => {
     fetchDashboardMetrics()
       .then((data) => {
         if (data) setMetrics(data);
+      })
+      .catch(() => {});
+    fetchAutomationMetrics()
+      .then((data) => {
+        if (data) setAutomation(data);
       })
       .catch(() => {});
     fetchNotifications()
@@ -566,6 +604,18 @@ function DashboardPage() {
     "expired-listing": "Expired Listing",
   };
 
+  // Pipeline stage labels (matches CRM pipeline)
+  const STAGE_LABELS: { key: string; label: string; chip: string }[] = [
+    { key: "new", label: "New Lead", chip: "bg-blue-500/20 text-blue-300 border-blue-500/30" },
+    { key: "contacted", label: "Contacted", chip: "bg-purple-500/20 text-purple-300 border-purple-500/30" },
+    { key: "qualified", label: "Qualified", chip: "bg-teal-500/20 text-teal-300 border-teal-500/30" },
+    { key: "appointment", label: "Appt. Set", chip: "bg-amber-500/20 text-amber-300 border-amber-500/30" },
+    { key: "offer", label: "Offer Made", chip: "bg-orange-500/20 text-orange-300 border-orange-500/30" },
+    { key: "contract", label: "Contract Signed", chip: "bg-green-500/20 text-green-300 border-green-500/30" },
+    { key: "closed", label: "Closed Won", chip: "bg-gold-500/20 text-gold-300 border-gold-500/30" },
+    { key: "dead", label: "Dead", chip: "bg-red-500/20 text-red-300 border-red-500/30" },
+  ];
+
   const leadSources = metrics.bySource.length > 0
     ? metrics.bySource.map((s) => ({
         source: sourceLabels[s.source] || s.source,
@@ -620,31 +670,86 @@ function DashboardPage() {
         })}
       </div>
 
-      {/* ── 2. Lead Source Breakdown ─────────────────────────────────── */}
+      {/* ── 2. Automation ─────────────────────────────────────────────── */}
+      <div className="mb-10 rounded-xl border border-navy-700 bg-navy-800/60 p-6">
+        <div className="mb-5 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-white">Automation</h2>
+          <span className="rounded-full border border-navy-600 bg-navy-900/60 px-3 py-1 text-xs text-gray-400">
+            Live pipeline health
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+          {[
+            { key: "enriched", label: "Leads Enriched", value: automation.leadsEnriched, color: "teal" },
+            { key: "sms", label: "SMS Sent Today", value: automation.smsSentToday, color: "blue" },
+            { key: "emails", label: "Emails Sent Today", value: automation.emailsSentToday, color: "amber" },
+            { key: "pending", label: "Pending Outreach Steps", value: automation.pendingOutreach, color: "gold" },
+            { key: "responses", label: "Responses Received", value: automation.responsesReceived, color: "green" },
+          ].map((card) => {
+            const c = KPI_COLORS[card.color];
+            return (
+              <div
+                key={card.key}
+                className={`rounded-xl border ${c.border} bg-gradient-to-br ${c.bg} p-4 shadow-lg ${c.glow}`}
+              >
+                <p className="text-xs font-medium uppercase tracking-wider text-gray-500">{card.label}</p>
+                <p className="mt-2 text-3xl font-bold text-white">{card.value}</p>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── 3. Pipeline Stages (live counts) ──────────────────────────── */}
+      <div className="mb-10 rounded-xl border border-navy-700 bg-navy-800/60 p-6">
+        <h2 className="mb-5 text-lg font-semibold text-white">Pipeline Stages</h2>
+        <div className="flex flex-wrap gap-2">
+          {STAGE_LABELS.map((stage) => {
+            const count = metrics.byStatus[stage.key] || 0;
+            const max = Math.max(1, ...STAGE_LABELS.map((s) => metrics.byStatus[s.key] || 0));
+            return (
+              <div key={stage.key} className="flex-1 min-w-[130px]">
+                <div className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm ${stage.chip}`}>
+                  <span className="font-medium">{stage.label}</span>
+                  <span className="text-base font-bold">{count}</span>
+                </div>
+                <div className="mt-1.5 h-1 overflow-hidden rounded bg-navy-700">
+                  <div
+                    className="h-full rounded bg-gradient-to-r from-gold-500 to-gold-400"
+                    style={{ width: `${(count / max) * 100}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── 4. Lead Source Breakdown ─────────────────────────────────── */}
       <div className="mb-10 rounded-xl border border-navy-700 bg-navy-800/60 p-6">
         <h2 className="mb-5 text-lg font-semibold text-white">Lead Source Breakdown</h2>
         <LeadSourceBars sources={leadSources} />
       </div>
 
-      {/* ── 3. Pipeline Funnel ───────────────────────────────────────── */}
+      {/* ── 5. Pipeline Funnel ───────────────────────────────────────── */}
       <div className="mb-10 rounded-xl border border-navy-700 bg-navy-800/60 p-6">
         <h2 className="mb-5 text-lg font-semibold text-white">Pipeline Funnel</h2>
         <PipelineFunnel stages={pipelineFunnel} />
       </div>
 
-      {/* ── 4. Monthly Revenue & Profit ──────────────────────────────── */}
+      {/* ── 6. Monthly Revenue & Profit ──────────────────────────────── */}
       <div className="mb-10 rounded-xl border border-navy-700 bg-navy-800/60 p-6">
         <h2 className="mb-5 text-lg font-semibold text-white">Monthly Revenue & Profit</h2>
         <MonthlyChart />
       </div>
 
-      {/* ── 5. Marketing ROI Table ───────────────────────────────────── */}
+      {/* ── 7. Marketing ROI Table ───────────────────────────────────── */}
       <div className="mb-10 rounded-xl border border-navy-700 bg-navy-800/60 p-6">
         <h2 className="mb-5 text-lg font-semibold text-white">Marketing ROI by Channel</h2>
         <MarketingRoiTable />
       </div>
 
-      {/* ── 6. Recent Activity ───────────────────────────────────────── */}
+      {/* ── 8. Recent Activity ───────────────────────────────────────── */}
       <div className="mb-10 rounded-xl border border-navy-700 bg-navy-800/60">
         <div className="border-b border-navy-700 px-6 py-4">
           <h2 className="text-lg font-semibold text-white">Recent Activity</h2>
