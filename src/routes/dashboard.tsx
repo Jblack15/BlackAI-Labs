@@ -2,139 +2,27 @@ import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { useState, useEffect } from "react";
 
-// ── Mock Data ──────────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────
 
-const KPIS = [
-  {
-    key: "leads",
-    label: "Total Leads",
-    value: 247,
-    trend: "+12.3%",
-    direction: "up",
-    color: "blue",
-  },
-  {
-    key: "appointments",
-    label: "Appointments Set",
-    value: 48,
-    trend: "+8.7%",
-    direction: "up",
-    color: "amber",
-  },
-  {
-    key: "contracts",
-    label: "Contracts Signed",
-    value: 15,
-    trend: "+5.2%",
-    direction: "up",
-    color: "green",
-  },
-  {
-    key: "deals",
-    label: "Deals Closed",
-    value: 7,
-    trend: "+2.1%",
-    direction: "up",
-    color: "gold",
-  },
-  {
-    key: "fees",
-    label: "Total Assignment Fees",
-    value: "$105,000",
-    trend: "+18.4%",
-    direction: "up",
-    color: "teal",
-  },
-  {
-    key: "profit",
-    label: "Net Profit",
-    value: "$78,500",
-    trend: "+22.1%",
-    direction: "up",
-    color: "green",
-  },
-];
+interface StageInfo {
+  name: string;
+  display_order: number;
+  color: string | null;
+}
 
-const LEAD_SOURCES = [
-  { source: "Tax Delinquent", count: 86, pct: 35 },
-  { source: "Probate", count: 44, pct: 18 },
-  { source: "Pre-Foreclosure", count: 37, pct: 15 },
-  { source: "Absentee Owners", count: 30, pct: 12 },
-  { source: "Tired Landlords", count: 20, pct: 8 },
-  { source: "Code Violations", count: 12, pct: 5 },
-  { source: "Other", count: 18, pct: 7 },
-];
-
-const PIPELINE_FUNNEL = [
-  { stage: "Marketing Contacts", count: 2500, rate: null, width: 100 },
-  { stage: "Leads", count: 247, rate: "9.9%", width: 78 },
-  { stage: "Appointments", count: 48, rate: "19.4%", width: 52 },
-  { stage: "Contracts", count: 15, rate: "31.3%", width: 30 },
-  { stage: "Closed", count: 7, rate: "46.7%", width: 14 },
-];
-
-const MONTHLY_DATA = [
-  { month: "Jan", revenue: 0, expenses: 1200, profit: -1200 },
-  { month: "Feb", revenue: 4500, expenses: 2800, profit: 1700 },
-  { month: "Mar", revenue: 12000, expenses: 5200, profit: 6800 },
-  { month: "Apr", revenue: 18500, expenses: 7100, profit: 11400 },
-  { month: "May", revenue: 26000, expenses: 8900, profit: 17100 },
-  { month: "Jun", revenue: 35000, expenses: 10500, profit: 24500 },
-];
-
-const MARKETING_ROI = [
-  {
-    channel: "Direct Mail",
-    spend: "$2,400",
-    leads: 35,
-    costPerLead: "$69",
-    deals: 2,
-    revenue: "$28,000",
-    roi: "11.7x",
-  },
-  {
-    channel: "Facebook Ads",
-    spend: "$3,000",
-    leads: 48,
-    costPerLead: "$63",
-    deals: 1,
-    revenue: "$15,000",
-    roi: "5.0x",
-  },
-  {
-    channel: "Google Ads",
-    spend: "$2,500",
-    leads: 28,
-    costPerLead: "$89",
-    deals: 1,
-    revenue: "$12,000",
-    roi: "4.8x",
-  },
-  {
-    channel: "SMS / Phone",
-    spend: "$1,200",
-    leads: 42,
-    costPerLead: "$29",
-    deals: 2,
-    revenue: "$32,000",
-    roi: "26.7x",
-  },
-  {
-    channel: "Referral / Organic",
-    spend: "$0",
-    leads: 18,
-    costPerLead: "$0",
-    deals: 1,
-    revenue: "$18,000",
-    roi: "∞",
-  },
-];
-
-// --- Server Functions ---
-interface DashboardMetrics {
+interface DashboardData {
+  /** False when the database was unreachable — every number is then 0/empty
+   *  and must NOT be read as business results. The UI shows a warning banner. */
+  dbOk: boolean;
   totalLeads: number;
-  byStatus: Record<string, number>;
+  /** Count of leads per canonical pipeline stage (leads.pipeline_stage). */
+  stageCounts: Record<string, number>;
+  /** Canonical 19 stages from pipeline_stages (labels/colors only — never counts). */
+  stages: StageInfo[];
+  /** Real lead_source distribution from the leads table. */
   bySource: { source: string; count: number }[];
+  /** Real financial summary from the contracts table (0 rows → $0). */
+  contracts: { total: number; assignmentFees: number };
 }
 
 interface AutomationMetrics {
@@ -154,33 +42,92 @@ interface NotificationItem {
   created_at: string;
 }
 
-const fetchDashboardMetrics = createServerFn({ method: "GET" }).handler(async (): Promise<DashboardMetrics> => {
+// ── Fallback stage list (labels/colors only) ───────────────────────────────
+// Mirrors the seed in migration 008 / src/db/seed.ts. Used ONLY to render stage
+// names/colors when the pipeline_stages table is unreachable. Counts always come
+// from the database — never from this list.
+const MOCK_STAGES: StageInfo[] = [
+  { name: "new_lead", display_order: 1, color: "slate" },
+  { name: "property_enrichment", display_order: 2, color: "blue" },
+  { name: "ai_qualification", display_order: 3, color: "cyan" },
+  { name: "seller_contacted", display_order: 4, color: "purple" },
+  { name: "follow_up", display_order: 5, color: "violet" },
+  { name: "deal_analysis", display_order: 6, color: "teal" },
+  { name: "offer_recommendation", display_order: 7, color: "indigo" },
+  { name: "human_approval", display_order: 8, color: "amber" },
+  { name: "offer_sent", display_order: 9, color: "orange" },
+  { name: "negotiation", display_order: 10, color: "pink" },
+  { name: "contract_prepared", display_order: 11, color: "sky" },
+  { name: "contract_sent", display_order: 12, color: "fuchsia" },
+  { name: "contract_signed", display_order: 13, color: "emerald" },
+  { name: "buyer_matching", display_order: 14, color: "lime" },
+  { name: "buyer_contacted", display_order: 15, color: "green" },
+  { name: "assignment", display_order: 16, color: "gold" },
+  { name: "closing", display_order: 17, color: "yellow" },
+  { name: "closed_won", display_order: 18, color: "gold" },
+  { name: "closed_lost", display_order: 19, color: "red" },
+];
+
+// Stage groups used for the KPI cards + funnel. All are sums of real per-stage
+// counts returned by getPipelineStats() — no invented numbers.
+const CONTACTED_STAGES = [
+  "seller_contacted", "follow_up", "deal_analysis", "offer_recommendation",
+  "human_approval", "offer_sent", "negotiation", "contract_prepared",
+  "contract_sent", "contract_signed", "buyer_matching", "buyer_contacted",
+  "assignment", "closing",
+];
+const OFFER_STAGES = [
+  "offer_sent", "negotiation", "contract_prepared", "contract_sent",
+];
+const CONTRACT_STAGES = [
+  "contract_signed", "buyer_matching", "buyer_contacted", "assignment", "closing",
+];
+
+// ── Server Functions ──────────────────────────────────────────────────────
+// Every number below is a live database query. On failure we return dbOk:false
+// with zeros — never sample/fabricated figures (the UI surfaces the warning).
+const fetchDashboardData = createServerFn({ method: "GET" }).handler(async (): Promise<DashboardData> => {
   try {
     const { sql } = await import("~/db");
+    const { getPipelineStats } = await import("~/lib/pipeline");
 
-    const totalRows = await sql`SELECT COUNT(*)::int as count FROM leads` as { count: number }[];
+    const [totalRows, stats, sourceRows, stageRows, contractRows] = await Promise.all([
+      sql`SELECT COUNT(*)::int AS count FROM leads` as { count: number }[],
+      getPipelineStats(),
+      sql`
+        SELECT COALESCE(NULLIF(lead_source, ''), 'No Source') AS source, COUNT(*)::int AS count
+        FROM leads
+        GROUP BY 1
+        ORDER BY count DESC
+      ` as { source: string; count: number }[],
+      sql`
+        SELECT name, display_order, color FROM pipeline_stages
+        WHERE is_active = true ORDER BY display_order ASC
+      ` as StageInfo[],
+      sql`
+        SELECT COUNT(*)::int AS total, COALESCE(SUM(assignment_fee), 0)::numeric AS fees
+        FROM contracts
+      ` as { total: number; fees: string }[],
+    ]);
+
     const totalLeads = totalRows[0]?.count ?? 0;
 
-    const statusRows = await sql`
-      SELECT status, COUNT(*)::int as count FROM leads GROUP BY status
-    ` as { status: string; count: number }[];
-    const byStatus: Record<string, number> = {};
-    for (const r of statusRows) byStatus[r.status] = r.count;
+    const stageCounts: Record<string, number> = {};
+    for (const s of stats) stageCounts[s.stage] = s.count;
 
-    const sourceRows = await sql`
-      SELECT lead_source as source, COUNT(*)::int as count
-      FROM leads WHERE lead_source IS NOT NULL AND lead_source != ''
-      GROUP BY lead_source ORDER BY count DESC
-    ` as { source: string; count: number }[];
     const bySource = sourceRows.map((r) => ({ source: r.source, count: r.count }));
 
-    return { totalLeads, byStatus, bySource };
-  } catch {
-    return {
-      totalLeads: 247,
-      byStatus: {},
-      bySource: [],
+    // Canonical stages from the DB; fall back to MOCK_STAGES for rendering only.
+    const stages = stageRows.length > 0 ? stageRows : MOCK_STAGES;
+
+    const contracts = {
+      total: contractRows[0]?.total ?? 0,
+      assignmentFees: Number(contractRows[0]?.fees ?? 0),
     };
+
+    return { dbOk: true, totalLeads, stageCounts, stages, bySource, contracts };
+  } catch {
+    return { dbOk: false, totalLeads: 0, stageCounts: {}, stages: MOCK_STAGES, bySource: [], contracts: { total: 0, assignmentFees: 0 } };
   }
 });
 
@@ -252,6 +199,41 @@ const KPI_COLORS: Record<string, { bg: string; border: string; text: string; glo
   },
 };
 
+// Color token -> Tailwind badge classes (same mapping as the CRM; tokens come
+// from the pipeline_stages.color column).
+const STAGE_COLOR_CLASSES: Record<string, string> = {
+  slate: "bg-slate-500/20 text-slate-300 border-slate-500/30",
+  blue: "bg-blue-500/20 text-blue-300 border-blue-500/30",
+  cyan: "bg-cyan-500/20 text-cyan-300 border-cyan-500/30",
+  purple: "bg-purple-500/20 text-purple-300 border-purple-500/30",
+  violet: "bg-violet-500/20 text-violet-300 border-violet-500/30",
+  teal: "bg-teal-500/20 text-teal-300 border-teal-500/30",
+  indigo: "bg-indigo-500/20 text-indigo-300 border-indigo-500/30",
+  amber: "bg-amber-500/20 text-amber-300 border-amber-500/30",
+  orange: "bg-orange-500/20 text-orange-300 border-orange-500/30",
+  pink: "bg-pink-500/20 text-pink-300 border-pink-500/30",
+  sky: "bg-sky-500/20 text-sky-300 border-sky-500/30",
+  fuchsia: "bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/30",
+  emerald: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+  lime: "bg-lime-500/20 text-lime-300 border-lime-500/30",
+  green: "bg-green-500/20 text-green-300 border-green-500/30",
+  gold: "bg-gold-500/20 text-gold-300 border-gold-500/30",
+  yellow: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30",
+  red: "bg-red-500/20 text-red-300 border-red-500/30",
+};
+
+function stageLabel(name: string | null | undefined): string {
+  if (!name) return "New Lead";
+  return name
+    .split("_")
+    .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+    .join(" ");
+}
+
+function stageBadge(color: string | null | undefined): string {
+  return (color && STAGE_COLOR_CLASSES[color]) || STAGE_COLOR_CLASSES.slate;
+}
+
 const ACTIVITY_ICONS: Record<string, string> = {
   contract: "📝",
   lead: "🆕",
@@ -270,13 +252,24 @@ const ACTIVITY_BORDERS: Record<string, string> = {
 
 // ── Chart sub-components ───────────────────────────────────────────────────
 
+function EmptyState({ icon = "📭", message }: { icon?: string; message: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-navy-700 bg-navy-900/30 px-6 py-12 text-center">
+      <div className="mb-3 text-3xl">{icon}</div>
+      <p className="max-w-md text-sm text-gray-400">{message}</p>
+    </div>
+  );
+}
+
 function LeadSourceBars({ sources }: { sources: { source: string; count: number; pct: number }[] }) {
-  const maxCount = sources[0]?.count || 1;
+  const maxCount = Math.max(1, ...sources.map((s) => s.count));
   return (
     <div className="space-y-3">
       {sources.map((src) => (
         <div key={src.source} className="flex items-center gap-3">
-          <span className="w-36 shrink-0 text-sm text-gray-300">{src.source}</span>
+          <span className="w-44 shrink-0 truncate text-sm text-gray-300" title={src.source}>
+            {src.source}
+          </span>
           <div className="flex flex-1 items-center gap-2">
             <div className="h-5 flex-1 overflow-hidden rounded bg-navy-700">
               <div
@@ -295,11 +288,17 @@ function LeadSourceBars({ sources }: { sources: { source: string; count: number;
   );
 }
 
-function PipelineFunnel({ stages }: { stages: { stage: string; count: number; rate: string | null; width: number }[] }) {
+interface FunnelStage {
+  stage: string;
+  count: number;
+  rate: string | null;
+  width: number;
+}
+
+function PipelineFunnel({ stages }: { stages: FunnelStage[] }) {
   return (
     <div className="space-y-3">
       {stages.map((stage, i) => {
-        const isFirst = i === 0;
         const isLast = i === stages.length - 1;
         return (
           <div key={stage.stage} className="flex flex-col items-center">
@@ -312,7 +311,7 @@ function PipelineFunnel({ stages }: { stages: { stage: string; count: number; ra
                 background:
                   i === 0
                     ? "linear-gradient(90deg, rgba(59,130,246,0.2), rgba(59,130,246,0.05))"
-                    : i === PIPELINE_FUNNEL.length - 1
+                    : isLast
                       ? "linear-gradient(90deg, rgba(245,158,11,0.25), rgba(245,158,11,0.08))"
                       : undefined,
               }}
@@ -320,12 +319,14 @@ function PipelineFunnel({ stages }: { stages: { stage: string; count: number; ra
               <span className="text-sm font-medium text-gray-200">{stage.stage}</span>
               <span className="text-lg font-bold text-white">{stage.count.toLocaleString()}</span>
             </div>
-            {!isLast && stage.rate && (
+            {!isLast && (
               <div className="my-1 flex items-center gap-1">
                 <svg className="h-3 w-3 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
                 </svg>
-                <span className="text-xs text-gray-500">{stage.rate} conversion</span>
+                <span className="text-xs text-gray-500">
+                  {stage.rate ? `${stage.rate} conversion` : "no leads yet to convert"}
+                </span>
               </div>
             )}
           </div>
@@ -335,129 +336,11 @@ function PipelineFunnel({ stages }: { stages: { stage: string; count: number; ra
   );
 }
 
-function MonthlyChart() {
-  const maxRevenue = Math.max(...MONTHLY_DATA.map((d) => d.revenue));
-  const maxExpense = Math.max(...MONTHLY_DATA.map((d) => d.expenses));
-  const chartMax = Math.max(maxRevenue, maxExpense) * 1.2;
-
-  return (
-    <div>
-      {/* Legend */}
-      <div className="mb-4 flex items-center gap-6">
-        <div className="flex items-center gap-2">
-          <div className="h-3 w-3 rounded-sm bg-gold-500" />
-          <span className="text-xs text-gray-400">Revenue</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="h-3 w-3 rounded-sm bg-red-500/50" />
-          <span className="text-xs text-gray-400">Expenses</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="h-0.5 w-6 bg-teal-400" />
-          <span className="text-xs text-gray-400">Net Profit</span>
-        </div>
-      </div>
-
-      {/* Bars */}
-      <div className="flex items-end gap-3" style={{ height: "200px" }}>
-        {MONTHLY_DATA.map((d) => (
-          <div key={d.month} className="flex flex-1 flex-col items-center gap-1">
-            {/* Profit dot */}
-            <div className="flex w-full flex-col items-center">
-              <span
-                className="mb-1 text-[10px] font-semibold text-teal-400"
-                style={{
-                  marginBottom: `${d.profit > 0 ? (d.profit / chartMax) * 200 + 4 : 4}px`,
-                }}
-              >
-                {d.profit >= 0 ? `$${(d.profit / 1000).toFixed(1)}k` : ""}
-              </span>
-            </div>
-            <div className="flex w-full items-end justify-center gap-1">
-              {/* Revenue bar */}
-              <div
-                className="w-4 rounded-t bg-gold-500 transition-all sm:w-6"
-                style={{ height: `${(d.revenue / chartMax) * 200}px` }}
-              />
-              {/* Expense bar */}
-              <div
-                className="w-4 rounded-t bg-red-500/50 transition-all sm:w-6"
-                style={{ height: `${(d.expenses / chartMax) * 200}px` }}
-              />
-            </div>
-            <span className="mt-2 text-xs text-gray-500">{d.month}</span>
-          </div>
-        ))}
-      </div>
-
-      {/* Profit line (overlay simulation via absolute positioning is messy, so we show profit below) */}
-      <div className="mt-4 grid grid-cols-6 gap-3">
-        {MONTHLY_DATA.map((d) => (
-          <div key={d.month} className="text-center">
-            <div
-              className={`text-xs font-semibold ${d.profit >= 0 ? "text-teal-400" : "text-red-400"}`}
-            >
-              {d.profit >= 0 ? `+$${(d.profit / 1000).toFixed(1)}k` : `-$${(Math.abs(d.profit) / 1000).toFixed(1)}k`}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function MarketingRoiTable() {
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left text-sm">
-        <thead>
-          <tr className="border-b border-navy-600 text-xs uppercase text-gray-500">
-            <th className="pb-3 pr-4 font-medium">Channel</th>
-            <th className="pb-3 pr-4 font-medium">Spend</th>
-            <th className="pb-3 pr-4 font-medium">Leads</th>
-            <th className="pb-3 pr-4 font-medium">Cost/Lead</th>
-            <th className="pb-3 pr-4 font-medium">Deals</th>
-            <th className="pb-3 pr-4 font-medium">Revenue</th>
-            <th className="pb-3 font-medium text-right">ROI</th>
-          </tr>
-        </thead>
-        <tbody>
-          {MARKETING_ROI.map((row) => (
-            <tr key={row.channel} className="border-b border-navy-700/50 hover:bg-navy-800/50">
-              <td className="py-3 pr-4 font-medium text-gray-200">{row.channel}</td>
-              <td className="py-3 pr-4 text-gray-400">{row.spend}</td>
-              <td className="py-3 pr-4 text-gray-300">{row.leads}</td>
-              <td className="py-3 pr-4 text-gray-400">{row.costPerLead}</td>
-              <td className="py-3 pr-4 text-gray-300">{row.deals}</td>
-              <td className="py-3 pr-4 font-medium text-gold-400">{row.revenue}</td>
-              <td className="py-3 text-right">
-                <span
-                  className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                    row.roi === "∞"
-                      ? "bg-gold-500/20 text-gold-400"
-                      : parseFloat(row.roi) > 10
-                        ? "bg-emerald-500/20 text-emerald-400"
-                        : parseFloat(row.roi) > 4
-                          ? "bg-blue-500/20 text-blue-400"
-                          : "bg-amber-500/20 text-amber-400"
-                  }`}
-                >
-                  {row.roi}
-                </span>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 function ActivityFeed({ notifications }: { notifications: NotificationItem[] }) {
   if (notifications.length === 0) {
     return (
       <div className="px-4 py-8 text-center text-sm text-gray-500">
-        No recent activity. New lead submissions will appear here.
+        No activity recorded yet. New lead submissions, stage changes and automation events will appear here.
       </div>
     );
   }
@@ -506,10 +389,13 @@ function formatTimeAgo(dateStr: string): string {
 // ── Main Dashboard Page ────────────────────────────────────────────────────
 
 function DashboardPage() {
-  const [metrics, setMetrics] = useState<DashboardMetrics>({
-    totalLeads: 247,
-    byStatus: {},
+  const [data, setData] = useState<DashboardData>({
+    dbOk: true,
+    totalLeads: 0,
+    stageCounts: {},
+    stages: MOCK_STAGES,
     bySource: [],
+    contracts: { total: 0, assignmentFees: 0 },
   });
   const [automation, setAutomation] = useState<AutomationMetrics>({
     leadsEnriched: 0,
@@ -521,126 +407,143 @@ function DashboardPage() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
   useEffect(() => {
-    fetchDashboardMetrics()
-      .then((data) => {
-        if (data) setMetrics(data);
+    fetchDashboardData()
+      .then((d) => {
+        if (d) setData(d);
       })
       .catch(() => {});
     fetchAutomationMetrics()
-      .then((data) => {
-        if (data) setAutomation(data);
+      .then((d) => {
+        if (d) setAutomation(d);
       })
       .catch(() => {});
     fetchNotifications()
-      .then((data) => {
-        if (data) setNotifications(data);
+      .then((d) => {
+        if (d) setNotifications(d);
       })
       .catch(() => {});
   }, []);
 
-  // Derive KPI values from real data
+  // ---- Derive every KPI from real counts ----
+  const countOf = (names: string[]) =>
+    names.reduce((sum, n) => sum + (data.stageCounts[n] || 0), 0);
+
+  const contacted = countOf(CONTACTED_STAGES);
+  const offersOut = countOf(OFFER_STAGES);
+  const underContract = countOf(CONTRACT_STAGES);
+  const closedWon = data.stageCounts["closed_won"] || 0;
+  const totalLeads = data.totalLeads;
+
+  const fmtUsd = (n: number) => `$${n.toLocaleString("en-US")}`;
+
   const kpis = [
     {
       key: "leads",
       label: "Total Leads",
-      value: metrics.totalLeads,
-      trend: "+12.3%",
-      direction: "up" as const,
+      value: totalLeads.toLocaleString("en-US"),
+      note: "Live count from the leads table",
       color: "blue",
     },
     {
-      key: "appointments",
-      label: "Appointments Set",
-      value: metrics.byStatus["appointment"] || 0,
-      trend: "+8.7%",
-      direction: "up" as const,
+      key: "contacted",
+      label: "Leads Contacted",
+      value: contacted.toLocaleString("en-US"),
+      note: contacted === 0 ? "No outreach sent yet — start from the CRM" : "Sellers reached so far",
       color: "amber",
     },
     {
-      key: "contracts",
-      label: "Contracts Signed",
-      value: metrics.byStatus["contract"] || 0,
-      trend: "+5.2%",
-      direction: "up" as const,
+      key: "offers",
+      label: "Offers Sent",
+      value: offersOut.toLocaleString("en-US"),
+      note: offersOut === 0 ? "No offers presented yet" : "Offers currently in play",
       color: "green",
+    },
+    {
+      key: "contracts",
+      label: "Under Contract",
+      value: underContract.toLocaleString("en-US"),
+      note: underContract === 0 ? "No signed contracts yet" : "Signed contracts in the pipeline",
+      color: "gold",
     },
     {
       key: "deals",
       label: "Deals Closed",
-      value: metrics.byStatus["closed"] || 0,
-      trend: "+2.1%",
-      direction: "up" as const,
-      color: "gold",
+      value: closedWon.toLocaleString("en-US"),
+      note: closedWon === 0 ? "Pre-revenue — no closings yet" : "Closed and profitable deals",
+      color: "teal",
     },
     {
       key: "fees",
       label: "Total Assignment Fees",
-      value: "$105,000",
-      trend: "+18.4%",
-      direction: "up" as const,
-      color: "teal",
-    },
-    {
-      key: "profit",
-      label: "Net Profit",
-      value: "$78,500",
-      trend: "+22.1%",
-      direction: "up" as const,
+      value: fmtUsd(data.contracts.assignmentFees),
+      note:
+        data.contracts.total === 0
+          ? "No contracts on record — fees appear as deals close"
+          : `Across ${data.contracts.total} contract${data.contracts.total === 1 ? "" : "s"}`,
       color: "green",
     },
   ];
 
-  // Derive lead sources from real data
-  const sourceLabels: Record<string, string> = {
-    "tax-delinquent": "Tax Delinquent",
-    probate: "Probate",
-    "pre-foreclosure": "Pre-Foreclosure",
-    absentee: "Absentee Owners",
-    "tired-landlord": "Tired Landlords",
-    "code-violations": "Code Violations",
-    vacant: "Vacant",
-    "high-equity": "High Equity",
-    divorce: "Divorce",
-    "expired-listing": "Expired Listing",
-  };
+  // Lead sources from real lead_source values
+  const leadSources = data.bySource.map((s) => ({
+    source: s.source,
+    count: s.count,
+    pct: totalLeads > 0 ? Math.round((s.count / totalLeads) * 100) : 0,
+  }));
 
-  // Pipeline stage labels (matches CRM pipeline)
-  const STAGE_LABELS: { key: string; label: string; chip: string }[] = [
-    { key: "new", label: "New Lead", chip: "bg-blue-500/20 text-blue-300 border-blue-500/30" },
-    { key: "contacted", label: "Contacted", chip: "bg-purple-500/20 text-purple-300 border-purple-500/30" },
-    { key: "qualified", label: "Qualified", chip: "bg-teal-500/20 text-teal-300 border-teal-500/30" },
-    { key: "appointment", label: "Appt. Set", chip: "bg-amber-500/20 text-amber-300 border-amber-500/30" },
-    { key: "offer", label: "Offer Made", chip: "bg-orange-500/20 text-orange-300 border-orange-500/30" },
-    { key: "contract", label: "Contract Signed", chip: "bg-green-500/20 text-green-300 border-green-500/30" },
-    { key: "closed", label: "Closed Won", chip: "bg-gold-500/20 text-gold-300 border-gold-500/30" },
-    { key: "dead", label: "Dead", chip: "bg-red-500/20 text-red-300 border-red-500/30" },
+  // Pipeline funnel from real stage counts (conversion = count / previous count)
+  const funnelStages: FunnelStage[] = [
+    { stage: "New Leads", count: totalLeads, rate: null, width: 100 },
+    {
+      stage: "Contacted",
+      count: contacted,
+      rate: totalLeads > 0 ? `${((contacted / totalLeads) * 100).toFixed(1)}%` : null,
+      width: totalLeads > 0 ? Math.max(20, (contacted / totalLeads) * 100) : 20,
+    },
+    {
+      stage: "Offers Sent",
+      count: offersOut,
+      rate: contacted > 0 ? `${((offersOut / contacted) * 100).toFixed(1)}%` : null,
+      width: contacted > 0 ? Math.max(15, (offersOut / contacted) * 100) : 15,
+    },
+    {
+      stage: "Under Contract",
+      count: underContract,
+      rate: offersOut > 0 ? `${((underContract / offersOut) * 100).toFixed(1)}%` : null,
+      width: offersOut > 0 ? Math.max(10, (underContract / offersOut) * 100) : 10,
+    },
+    {
+      stage: "Closed Won",
+      count: closedWon,
+      rate: underContract > 0 ? `${((closedWon / underContract) * 100).toFixed(1)}%` : null,
+      width: underContract > 0 ? Math.max(10, (closedWon / underContract) * 100) : 10,
+    },
   ];
 
-  const leadSources = metrics.bySource.length > 0
-    ? metrics.bySource.map((s) => ({
-        source: sourceLabels[s.source] || s.source,
-        count: s.count,
-        pct: Math.round((s.count / metrics.totalLeads) * 100),
-      }))
-    : LEAD_SOURCES;
+  const automationAllZero =
+    automation.leadsEnriched === 0 &&
+    automation.smsSentToday === 0 &&
+    automation.emailsSentToday === 0 &&
+    automation.pendingOutreach === 0 &&
+    automation.responsesReceived === 0;
 
-  // Pipeline funnel from status counts
-  const pipelineFunnel = metrics.byStatus
-    ? [
-        { stage: "Marketing Contacts", count: 2500, rate: null as string | null, width: 100 },
-        { stage: "Leads", count: metrics.totalLeads, rate: `${((metrics.totalLeads / 2500) * 100).toFixed(1)}%`, width: 78 },
-        { stage: "Appointments", count: metrics.byStatus["appointment"] || 0, rate: metrics.totalLeads > 0 ? `${(((metrics.byStatus["appointment"] || 0) / metrics.totalLeads) * 100).toFixed(1)}%` : "0%", width: 52 },
-        { stage: "Contracts", count: metrics.byStatus["contract"] || 0, rate: metrics.totalLeads > 0 ? `${(((metrics.byStatus["contract"] || 0) / metrics.totalLeads) * 100).toFixed(1)}%` : "0%", width: 30 },
-        { stage: "Closed", count: metrics.byStatus["closed"] || 0, rate: metrics.totalLeads > 0 ? `${(((metrics.byStatus["closed"] || 0) / metrics.totalLeads) * 100).toFixed(1)}%` : "0%", width: 14 },
-      ]
-    : PIPELINE_FUNNEL;
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
       {/* Page Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-white">Dashboard</h1>
-        <p className="mt-1 text-gray-400">Real-time business intelligence for your wholesaling operation.</p>
+        <p className="mt-1 text-gray-400">
+          Real-time business intelligence for your wholesaling operation. Every figure is live from the database.
+        </p>
       </div>
+
+      {/* Database unreachable warning — zeros must not be read as results */}
+      {!data.dbOk && (
+        <div className="mb-6 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
+          ⚠️ Live database unreachable — counts below show 0 and are not actual figures. The dashboard will
+          populate once the database connection is restored.
+        </div>
+      )}
 
       {/* ── 1. KPI Cards ─────────────────────────────────────────────── */}
       <div className="mb-10 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
@@ -655,16 +558,7 @@ function DashboardPage() {
                 {kpi.label}
               </p>
               <p className="mt-2 text-2xl font-bold text-white sm:text-3xl">{kpi.value}</p>
-              <div className="mt-2 flex items-center gap-1">
-                <span
-                  className={`text-xs font-semibold ${
-                    kpi.direction === "up" ? "text-emerald-400" : "text-red-400"
-                  }`}
-                >
-                  {kpi.direction === "up" ? "↑" : "↓"} {kpi.trend}
-                </span>
-                <span className="text-xs text-gray-600">vs last period</span>
-              </div>
+              <p className="mt-2 text-[11px] leading-snug text-gray-500">{kpi.note}</p>
             </div>
           );
         })}
@@ -698,19 +592,26 @@ function DashboardPage() {
             );
           })}
         </div>
+        {automationAllZero && (
+          <p className="mt-4 text-xs text-gray-500">
+            Nothing has run yet — these counters fill in as skip tracing, SMS/email outreach and automations fire.
+          </p>
+        )}
       </div>
 
-      {/* ── 3. Pipeline Stages (live counts) ──────────────────────────── */}
+      {/* ── 3. Pipeline Stages (live counts, canonical 19-stage vocabulary) ── */}
       <div className="mb-10 rounded-xl border border-navy-700 bg-navy-800/60 p-6">
         <h2 className="mb-5 text-lg font-semibold text-white">Pipeline Stages</h2>
         <div className="flex flex-wrap gap-2">
-          {STAGE_LABELS.map((stage) => {
-            const count = metrics.byStatus[stage.key] || 0;
-            const max = Math.max(1, ...STAGE_LABELS.map((s) => metrics.byStatus[s.key] || 0));
+          {data.stages.map((stage) => {
+            const count = data.stageCounts[stage.name] || 0;
+            const max = Math.max(1, ...data.stages.map((s) => data.stageCounts[s.name] || 0));
             return (
-              <div key={stage.key} className="flex-1 min-w-[130px]">
-                <div className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm ${stage.chip}`}>
-                  <span className="font-medium">{stage.label}</span>
+              <div key={stage.name} className="min-w-[130px] flex-1">
+                <div
+                  className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm ${stageBadge(stage.color)}`}
+                >
+                  <span className="font-medium">{stageLabel(stage.name)}</span>
                   <span className="text-base font-bold">{count}</span>
                 </div>
                 <div className="mt-1.5 h-1 overflow-hidden rounded bg-navy-700">
@@ -723,30 +624,46 @@ function DashboardPage() {
             );
           })}
         </div>
+        <p className="mt-4 text-xs text-gray-500">
+          Same 19-stage pipeline as the CRM — counts are leads in each canonical stage.
+        </p>
       </div>
 
       {/* ── 4. Lead Source Breakdown ─────────────────────────────────── */}
       <div className="mb-10 rounded-xl border border-navy-700 bg-navy-800/60 p-6">
         <h2 className="mb-5 text-lg font-semibold text-white">Lead Source Breakdown</h2>
-        <LeadSourceBars sources={leadSources} />
+        {leadSources.length > 0 ? (
+          <LeadSourceBars sources={leadSources} />
+        ) : (
+          <EmptyState message="No lead sources on record yet. Sources fill in as leads are imported." />
+        )}
       </div>
 
       {/* ── 5. Pipeline Funnel ───────────────────────────────────────── */}
       <div className="mb-10 rounded-xl border border-navy-700 bg-navy-800/60 p-6">
         <h2 className="mb-5 text-lg font-semibold text-white">Pipeline Funnel</h2>
-        <PipelineFunnel stages={pipelineFunnel} />
+        <PipelineFunnel stages={funnelStages} />
+        <p className="mt-4 text-xs text-gray-500">
+          Conversion rates are real ratios of live stage counts — they show “no leads yet to convert” when a stage is empty.
+        </p>
       </div>
 
       {/* ── 6. Monthly Revenue & Profit ──────────────────────────────── */}
       <div className="mb-10 rounded-xl border border-navy-700 bg-navy-800/60 p-6">
-        <h2 className="mb-5 text-lg font-semibold text-white">Monthly Revenue & Profit</h2>
-        <MonthlyChart />
+        <h2 className="mb-5 text-lg font-semibold text-white">Monthly Revenue &amp; Profit</h2>
+        <EmptyState
+          icon="💵"
+          message="No revenue or expenses have been recorded yet — this business is pre-revenue. This chart will populate when contracts and closings create fee transactions."
+        />
       </div>
 
       {/* ── 7. Marketing ROI Table ───────────────────────────────────── */}
       <div className="mb-10 rounded-xl border border-navy-700 bg-navy-800/60 p-6">
         <h2 className="mb-5 text-lg font-semibold text-white">Marketing ROI by Channel</h2>
-        <MarketingRoiTable />
+        <EmptyState
+          icon="📊"
+          message="Marketing spend by channel isn't tracked yet. This table will populate once campaigns and channel costs are recorded (direct mail, SMS, email)."
+        />
       </div>
 
       {/* ── 8. Recent Activity ───────────────────────────────────────── */}
