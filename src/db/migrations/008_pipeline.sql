@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS pipeline_automations (
   is_active BOOLEAN DEFAULT true
 );
 
--- Canonical stage column on leads (idempotent; added by 006, kept for safety).
+-- Canonical stage column on leads (idempotent, added by 006, kept for safety)
 ALTER TABLE leads ADD COLUMN IF NOT EXISTS pipeline_stage TEXT DEFAULT 'new_lead';
 
 -- Seed the 19 canonical deal stages (idempotent).

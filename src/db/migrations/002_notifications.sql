@@ -12,6 +12,11 @@ CREATE TABLE IF NOT EXISTS notifications (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- Idempotent backfill: when 002_automation.sql created `notifications` first
+-- (with message/read columns), the CREATE above is skipped — add the columns
+-- this file owns so the indexes below don't fail on re-runs.
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS body TEXT;
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT false;
 CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications (created_at);
 CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications (is_read);
 
