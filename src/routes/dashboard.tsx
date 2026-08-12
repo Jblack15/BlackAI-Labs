@@ -163,6 +163,144 @@ const fetchNotifications = createServerFn({ method: "GET" }).handler(async (): P
     return [];
   }
 });
+// ── Analyzed Deals (PH1-B9) — latest saved analysis per lead ──────────────
+interface AnalyzedDealRow {
+  lead_id: string;
+  full_name: string | null;
+  property_address: string | null;
+  property_city: string | null;
+  property_state: string | null;
+  property_zip: string | null;
+  arv: string | number | null;
+  max_offer: string | number | null;
+  assignment_fee: string | number | null;
+  roi: string | number | null;
+  confidence: string | number | null;
+  analysis_status: string | null;
+  created_at: string;
+}
+const fetchAnalyzedDeals = createServerFn({ method: "GET" }).handler(async (): Promise<AnalyzedDealRow[]> => {
+  try {
+    const { sql } = await import("~/db");
+    const rows = (await sql`
+      SELECT DISTINCT ON (da.lead_id)
+             da.lead_id,
+             l.full_name,
+             l.property_address,
+             l.property_city,
+             l.property_state,
+             l.property_zip,
+             da.arv,
+             da.max_offer,
+             da.assignment_fee,
+             da.roi,
+             da.confidence,
+             da.analysis_status,
+             da.created_at
+      FROM deal_analyses da
+      JOIN leads l ON l.id = da.lead_id
+      WHERE da.lead_id IS NOT NULL
+      ORDER BY da.lead_id, da.created_at DESC
+      LIMIT 10
+    `) as AnalyzedDealRow[];
+    return rows.map((r) => ({ ...r, created_at: String(r.created_at) }));
+  } catch {
+    return []; // honest empty — never fabricated deals (audit #11)
+  }
+});
+
+// Latest saved analysis per lead, with a Reanalyze link back to the calculator.
+function AnalyzedDealsPanel({ deals }: { deals: AnalyzedDealRow[] }) {
+  const fmtUsd = (n: string | number | null) =>
+    n === null || n === undefined ? "—" : `${Math.round(Number(n)).toLocaleString("en-US")}`;
+  const fmtPct = (n: string | number | null) =>
+    n === null || n === undefined ? "—" : `${Number(n).toFixed(1)}%`;
+  return (
+    <div className="mb-10 rounded-xl border border-navy-700 bg-navy-800/60 p-6">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-lg font-semibold text-white">Analyzed Deals</h2>
+        <Link
+          to="/calculator"
+          className="text-xs font-medium text-gold-400 transition-colors hover:text-gold-300"
+        >
+          Open Calculator →
+        </Link>
+      </div>
+      {deals.length === 0 ? (
+        <p className="text-sm text-gray-400">
+          No analyzed deals yet — run the calculator on a lead and save the analysis; the latest
+          saved run per lead appears here.
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] text-left text-sm">
+            <thead>
+              <tr className="border-b border-navy-700 text-xs uppercase tracking-wider text-gray-500">
+                <th className="py-2 pr-3">Lead</th>
+                <th className="py-2 pr-3">ARV</th>
+                <th className="py-2 pr-3">MAO</th>
+                <th className="py-2 pr-3">Fee</th>
+                <th className="py-2 pr-3">ROI</th>
+                <th className="py-2 pr-3">Confidence</th>
+                <th className="py-2 pr-3">Status</th>
+                <th className="py-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {deals.map((d) => (
+                <tr key={d.lead_id} className="border-b border-navy-700/50 hover:bg-navy-800/80">
+                  <td className="py-2 pr-3">
+                    <p className="font-medium text-white">{d.full_name || "—"}</p>
+                    <p className="text-xs text-gray-500">
+                      {[d.property_address, d.property_city, d.property_state, d.property_zip]
+                        .filter(Boolean)
+                        .join(", ") || "No address"}
+                    </p>
+                  </td>
+                  <td className="py-2 pr-3 text-gray-300">{fmtUsd(d.arv)}</td>
+                  <td className="py-2 pr-3 text-gray-300">{fmtUsd(d.max_offer)}</td>
+                  <td className="py-2 pr-3 text-gray-300">{fmtUsd(d.assignment_fee)}</td>
+                  <td className="py-2 pr-3 text-gold-400">{fmtPct(d.roi)}</td>
+                  <td className="py-2 pr-3 text-gray-300">
+                    {d.confidence === null || d.confidence === undefined ? (
+                      <span
+                        className="cursor-help"
+                        title="not computed — no inspection/comparable data"
+                      >
+                        —
+                      </span>
+                    ) : (
+                      `${Number(d.confidence).toFixed(0)}/100`
+                    )}
+                  </td>
+                  <td className="py-2 pr-3">
+                    <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-400">
+                      {d.analysis_status === "VERIFIED" ? "Verified" : "Estimate"}
+                    </span>
+                  </td>
+                  <td className="py-2 text-right">
+                    <Link
+                      to="/calculator"
+                      search={{ lead: d.lead_id }}
+                      className="text-xs font-medium text-gold-400 transition-colors hover:text-gold-300"
+                    >
+                      Reanalyze →
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="mt-3 text-[11px] text-gray-600">
+        Latest saved analysis per lead (deal_analyses). Confidence is “—” until inspection and
+        comparable-sales data produce a real score — never auto-filled.
+      </p>
+    </div>
+  );
+}
+
 // ── Next 25 to Work (PH1-B7) — real scores from the DB ────────────────────
 interface Next25Row {
   id: string;
@@ -578,6 +716,7 @@ function DashboardPage() {
   });
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [next25, setNext25] = useState<Next25Payload>({ ok: false, next25: [], queues: [] });
+  const [analyzedDeals, setAnalyzedDeals] = useState<AnalyzedDealRow[]>([]);
 
   useEffect(() => {
     fetchDashboardData()
@@ -598,6 +737,11 @@ function DashboardPage() {
     fetchNext25()
       .then((d) => {
         if (d) setNext25(d);
+      })
+      .catch(() => {});
+    fetchAnalyzedDeals()
+      .then((d) => {
+        if (d) setAnalyzedDeals(d);
       })
       .catch(() => {});
   }, []);
@@ -744,6 +888,8 @@ function DashboardPage() {
 
       {/* ── 1b. Next 25 to Work (PH1-B7) ─────────────────────────────── */}
       <Next25Panel payload={next25} />
+      {/* ── 1c. Analyzed Deals (PH1-B9) ───────────────────────────────── */}
+      <AnalyzedDealsPanel deals={analyzedDeals} />
       {/* ── 2. Automation ─────────────────────────────────────────────── */}
       <div className="mb-10 rounded-xl border border-navy-700 bg-navy-800/60 p-6">
         <div className="mb-5 flex items-center justify-between">
