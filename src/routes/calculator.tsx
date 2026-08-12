@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
+import { createServerFn } from "@tanstack/react-start";
 
 export const Route = createFileRoute("/calculator")({
   head: () => ({
@@ -14,6 +15,116 @@ export const Route = createFileRoute("/calculator")({
   }),
   component: Calculator,
 });
+
+// --- Deal analysis persistence (audit #10) ---
+// Every calculation can be saved to `deal_analyses` (migration 009) and
+// reloaded from the "Recent analyses" list. No data is fabricated: the list is
+// always read from the database and shows an honest empty state when nothing
+// has been saved.
+
+interface DealAnalysis {
+  id: string;
+  lead_id: string | null;
+  arv: number;
+  repairs: number;
+  max_offer: number;
+  assignment_fee: number;
+  closing_costs: number;
+  holding_costs: number;
+  projected_profit: number;
+  roi: number;
+  margin: number;
+  notes: string | null;
+  created_at: string;
+}
+
+interface DealAnalysisRow {
+  id: string;
+  lead_id: string | null;
+  arv: string | number;
+  repairs: string | number;
+  max_offer: string | number;
+  assignment_fee: string | number;
+  closing_costs: string | number;
+  holding_costs: string | number;
+  projected_profit: string | number;
+  roi: string | number;
+  margin: string | number;
+  notes: string | null;
+  created_at: Date | string;
+}
+
+function rowToAnalysis(row: DealAnalysisRow): DealAnalysis {
+  return {
+    id: String(row.id),
+    lead_id: row.lead_id ? String(row.lead_id) : null,
+    arv: Number(row.arv),
+    repairs: Number(row.repairs),
+    max_offer: Number(row.max_offer),
+    assignment_fee: Number(row.assignment_fee),
+    closing_costs: Number(row.closing_costs),
+    holding_costs: Number(row.holding_costs),
+    projected_profit: Number(row.projected_profit),
+    roi: Number(row.roi),
+    margin: Number(row.margin),
+    notes: row.notes,
+    created_at: String(row.created_at),
+  };
+}
+
+const saveDealAnalysis = createServerFn({ method: "POST" })
+  .validator((data: unknown) => {
+    const d = data as {
+      lead_id?: string | null;
+      arv: number;
+      repairs: number;
+      max_offer: number;
+      assignment_fee: number;
+      closing_costs: number;
+      holding_costs: number;
+      projected_profit: number;
+      roi: number;
+      margin: number;
+      notes?: string | null;
+    };
+    if (!Number.isFinite(d.arv) || !Number.isFinite(d.repairs) || !Number.isFinite(d.max_offer)) {
+      throw new Error("Invalid deal analysis — ARV, repairs and max offer must be numbers");
+    }
+    return d;
+  })
+  .handler(async ({ data }) => {
+    const { sql } = await import("~/db");
+    const rows = (await sql`
+      INSERT INTO deal_analyses (lead_id, arv, repairs, max_offer, assignment_fee, closing_costs, holding_costs, projected_profit, roi, margin, notes)
+      VALUES (${data.lead_id ?? null}, ${data.arv}, ${data.repairs}, ${data.max_offer}, ${data.assignment_fee}, ${data.closing_costs}, ${data.holding_costs}, ${data.projected_profit}, ${data.roi}, ${data.margin}, ${data.notes ?? null})
+      RETURNING id, lead_id, arv, repairs, max_offer, assignment_fee, closing_costs, holding_costs, projected_profit, roi, margin, notes, created_at
+    `) as DealAnalysisRow[];
+    return rowToAnalysis(rows[0]);
+  });
+
+const listDealAnalyses = createServerFn({ method: "GET" }).handler(async () => {
+  const { sql } = await import("~/db");
+  const rows = (await sql`
+    SELECT id, lead_id, arv, repairs, max_offer, assignment_fee, closing_costs, holding_costs, projected_profit, roi, margin, notes, created_at
+    FROM deal_analyses
+    ORDER BY created_at DESC
+    LIMIT 20
+  `) as DealAnalysisRow[];
+  return rows.map(rowToAnalysis);
+});
+
+const getDealAnalysis = createServerFn({ method: "POST" })
+  .validator((data: unknown) => data as { id: string })
+  .handler(async ({ data }) => {
+    const { sql } = await import("~/db");
+    const rows = (await sql`
+      SELECT id, lead_id, arv, repairs, max_offer, assignment_fee, closing_costs, holding_costs, projected_profit, roi, margin, notes, created_at
+      FROM deal_analyses
+      WHERE id = ${data.id}
+      LIMIT 1
+    `) as DealAnalysisRow[];
+    return rows.length ? rowToAnalysis(rows[0]) : null;
+  });
 
 // Format a number as USD with commas
 function fmtDollar(val: number): string {
@@ -111,6 +222,83 @@ function Calculator() {
   const displayFee = feeRaw ? fmtDollar(fee) : "";
   const displayHolding = holdingRaw ? fmtDollar(holding) : "";
   const displayClosingManual = closingManualRaw ? fmtDollar(closingManual) : "";
+
+  // --- Persistence (audit #10) ---
+  const [recent, setRecent] = useState<DealAnalysis[]>([]);
+  const [recentStatus, setRecentStatus] = useState<"loading" | "loaded" | "error">("loading");
+  const [recentError, setRecentError] = useState("");
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [saveMessage, setSaveMessage] = useState("");
+
+  const refreshRecent = useCallback(() => {
+    listDealAnalyses()
+      .then((rows) => {
+        setRecent(rows);
+        setRecentStatus("loaded");
+        setRecentError("");
+      })
+      .catch(() => {
+        setRecentStatus("error");
+        setRecentError("Couldn't load saved analyses — the database is unavailable.");
+      });
+  }, []);
+
+  useEffect(() => {
+    refreshRecent();
+  }, [refreshRecent]);
+
+  const handleSave = useCallback(async () => {
+    if (arv <= 0) {
+      setSaveState("error");
+      setSaveMessage("Enter an ARV before saving this analysis.");
+      return;
+    }
+    setSaveState("saving");
+    setSaveMessage("");
+    try {
+      const saved = await saveDealAnalysis({
+        data: {
+          lead_id: null,
+          arv,
+          repairs,
+          max_offer: mao,
+          assignment_fee: fee,
+          closing_costs: closing,
+          holding_costs: holding,
+          projected_profit: fee,
+          roi,
+          margin,
+        },
+      });
+      setRecent((prev) => [saved, ...prev].slice(0, 20));
+      setSaveState("saved");
+      setSaveMessage("Analysis saved.");
+    } catch (e) {
+      setSaveState("error");
+      setSaveMessage(
+        `Couldn't save the analysis — ${e instanceof Error ? e.message : "database unavailable"}.`
+      );
+    }
+  }, [arv, repairs, fee, closing, holding, mao, roi, margin]);
+
+  // Reload a saved analysis into the form inputs.
+  const handleLoad = useCallback((a: DealAnalysis) => {
+    setArvRaw(String(Math.round(a.arv)));
+    setRepairsRaw(String(Math.round(a.repairs)));
+    setFeeRaw(String(Math.round(a.assignment_fee)));
+    setHoldingRaw(String(Math.round(a.holding_costs)));
+    if (a.arv > 0) {
+      // Restore closing as % of ARV so the figure still matches the saved amount.
+      const pct = (a.closing_costs / a.arv) * 100;
+      setClosingPctRaw(pct.toFixed(2));
+      setClosingOverride(false);
+    } else {
+      setClosingOverride(true);
+      setClosingManualRaw(String(Math.round(a.closing_costs)));
+    }
+    setSaveState("idle");
+    setSaveMessage(`Loaded analysis from ${new Date(a.created_at).toLocaleDateString()}.`);
+  }, []);
 
   return (
     <div className="px-4 py-12 sm:px-6 lg:px-8">
@@ -268,14 +456,37 @@ function Calculator() {
           <div className="space-y-6 lg:col-span-2">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-white">Results</h2>
-              {/* Deal Badge */}
-              <span
-                className={`inline-flex items-center gap-1.5 rounded-full border ${dealBadge.border} ${dealBadge.bg} px-3 py-1 text-xs font-semibold ${dealBadge.color}`}
-              >
-                <span className={`h-2 w-2 rounded-full ${dealBadge.color.replace("text-", "bg-")}`} />
-                {dealBadge.label}
-              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleSave}
+                  disabled={saveState === "saving"}
+                  className="rounded-lg bg-gold-500 px-3 py-1.5 text-xs font-semibold text-navy-900 transition-colors hover:bg-gold-400 disabled:opacity-60"
+                >
+                  {saveState === "saving" ? "Saving…" : "Save Analysis"}
+                </button>
+                {/* Deal Badge */}
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full border ${dealBadge.border} ${dealBadge.bg} px-3 py-1 text-xs font-semibold ${dealBadge.color}`}
+                >
+                  <span className={`h-2 w-2 rounded-full ${dealBadge.color.replace("text-", "bg-")}`} />
+                  {dealBadge.label}
+                </span>
+              </div>
             </div>
+
+            {saveState !== "idle" && (
+              <p
+                className={`mt-2 text-xs ${
+                  saveState === "saved"
+                    ? "text-green-400"
+                    : saveState === "error"
+                      ? "text-red-400"
+                      : "text-gray-400"
+                }`}
+              >
+                {saveMessage}
+              </p>
+            )}
 
             {/* MAO Card */}
             <div className="rounded-xl border border-navy-700 bg-navy-800/50 p-5">
@@ -348,6 +559,70 @@ function Calculator() {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Recent analyses (persisted — audit #10) */}
+        <div className="mt-12">
+          <h2 className="text-lg font-semibold text-white">Recent Analyses</h2>
+          <p className="mt-1 text-sm text-gray-500">
+            Saved calculations from this database. Click one to reload its numbers into the calculator.
+          </p>
+
+          {recentStatus === "loading" && (
+            <div className="mt-4 rounded-xl border border-navy-700 bg-navy-800/50 p-6 text-center text-sm text-gray-500">
+              Loading saved analyses…
+            </div>
+          )}
+
+          {recentStatus === "error" && (
+            <div className="mt-4 rounded-xl border border-dashed border-red-500/30 bg-red-500/5 p-6 text-center">
+              <p className="text-sm text-red-400">{recentError}</p>
+              <p className="mt-1 text-xs text-gray-500">
+                No saved analyses are shown because the database could not be reached — nothing is invented here.
+              </p>
+            </div>
+          )}
+
+          {recentStatus === "loaded" && recent.length === 0 && (
+            <div className="mt-4 rounded-xl border border-dashed border-navy-700 bg-navy-800/30 p-6 text-center">
+              <p className="text-sm text-gray-500">
+                No saved analyses yet — run the calculator and hit “Save Analysis” to keep your deal numbers.
+              </p>
+            </div>
+          )}
+
+          {recent.length > 0 && (
+            <ul className="mt-4 space-y-2">
+              {recent.map((a) => (
+                <li key={a.id}>
+                  <button
+                    onClick={() => handleLoad(a)}
+                    className="flex w-full flex-wrap items-center justify-between gap-2 rounded-xl border border-navy-700 bg-navy-800/50 px-4 py-3 text-left transition-colors hover:border-gold-500/40 hover:bg-navy-800/80"
+                  >
+                    <span className="text-sm font-medium text-white">
+                      {new Date(a.created_at).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })}{" "}
+                      <span className="font-normal text-gray-500">
+                        {new Date(a.created_at).toLocaleTimeString("en-US", {
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                    </span>
+                    <span className="flex flex-wrap gap-3 text-xs text-gray-400">
+                      <span>ARV {fmtDollar(a.arv)}</span>
+                      <span>MAO {fmtDollar(a.max_offer)}</span>
+                      <span>Fee {fmtDollar(a.assignment_fee)}</span>
+                      <span className="text-gold-400">{fmtPct(a.roi)} ROI</span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         {/* Bottom CTA */}

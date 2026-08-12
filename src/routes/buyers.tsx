@@ -107,7 +107,91 @@ const fetchBuyers = createServerFn({ method: "GET" }).handler(async () => {
     `) as BuyerRow[];
     return rows.map(rowToBuyer);
   } catch {
-    return MOCK_BUYERS;
+    // Honest empty list — never fabricate buyers (audit #11).
+    return [] as Buyer[];
+  }
+});
+
+// Pipeline stages at which a deal is ready (or close to ready) to be matched
+// to cash buyers. Canonical 19-stage vocabulary from pipeline_stages (migration 008).
+const MATCHABLE_STAGES = [
+  "offer_recommendation",
+  "human_approval",
+  "offer_sent",
+  "negotiation",
+  "contract_prepared",
+  "contract_sent",
+  "contract_signed",
+  "buyer_matching",
+  "buyer_contacted",
+  "assignment",
+  "closing",
+];
+
+interface MatchableDealRow {
+  id: string;
+  lead_name: string | null;
+  property_address: string | null;
+  property_city: string | null;
+  property_state: string | null;
+  property_zip: string | null;
+  property_type: string | null;
+  status: string | null;
+  arv: string | number | null;
+  max_offer: string | number | null;
+  repairs: string | number | null;
+  assignment_fee: string | number | null;
+}
+
+// Real deals for the matcher: leads at buyer-matching-eligible pipeline stages
+// that have a saved deal analysis (migration 009). A deal without analyzed
+// numbers (ARV / MAO / repairs) has no price to match on, so it is not shown —
+// and when nothing qualifies the UI renders an honest empty state. Every field
+// traces to a real database row (audit #11).
+const fetchMatchableDeals = createServerFn({ method: "GET" }).handler(async () => {
+  try {
+    const { sql } = await import("~/db");
+    const rows = (await sql`
+      SELECT l.id,
+             l.full_name AS lead_name,
+             l.property_address,
+             l.property_city,
+             l.property_state,
+             l.property_zip,
+             l.property_type,
+             l.pipeline_stage AS status,
+             da.arv,
+             da.max_offer,
+             da.repairs,
+             da.assignment_fee
+      FROM leads l
+      JOIN LATERAL (
+        SELECT arv, max_offer, repairs, assignment_fee
+        FROM deal_analyses
+        WHERE lead_id = l.id
+        ORDER BY created_at DESC
+        LIMIT 1
+      ) da ON true
+      WHERE l.pipeline_stage = ANY(${MATCHABLE_STAGES})
+      ORDER BY l.updated_at DESC NULLS LAST
+    `) as MatchableDealRow[];
+    return rows.map((r): DealForMatch => {
+      const repairsNum = Number(r.repairs);
+      return {
+        id: String(r.id),
+        leadName: r.lead_name || "—",
+        propertyAddress: r.property_address || "",
+        propertyCity: r.property_city || "",
+        propertyState: r.property_state || "",
+        propertyZip: r.property_zip || "",
+        propertyType: r.property_type || "",
+        status: r.status || "unknown",
+        estimatedMAO: Number(r.max_offer) || 0,
+        repairs: Number.isFinite(repairsNum) && repairsNum > 0 ? `${repairsNum.toLocaleString("en-US")}` : "—",
+      };
+    });
+  } catch {
+    return [] as DealForMatch[];
   }
 });
 
@@ -156,184 +240,6 @@ const deleteBuyerDb = createServerFn({ method: "POST" })
     await sql`DELETE FROM buyers WHERE id = ${data.id}`;
     return { success: true as const };
   });
-
-// --- Mock Buyers ---
-
-const MOCK_BUYERS: Buyer[] = [
-  {
-    id: "b1",
-    name: "Austin Cash Flow LLC",
-    email: "deals@austincashflow.com",
-    phone: "(512) 555-1101",
-    preferredCities: ["Austin", "Round Rock", "Pflugerville"],
-    preferredZips: ["78701", "78702", "78704", "78664", "78660"],
-    maxPurchasePrice: 350000,
-    propertyTypes: ["SFR", "Townhouse"],
-    minBedrooms: 3,
-    minBaths: 2,
-    desiredROI: 12,
-    notes: "Buy-and-hold investor. Prefers B-class neighborhoods near downtown Austin. Closing in 7-10 days, all cash.",
-    createdAt: "2026-06-15T10:00:00Z",
-  },
-  {
-    id: "b2",
-    name: "HTX Multi-Family Group",
-    email: "acquisitions@htxmultifamily.com",
-    phone: "(713) 555-2202",
-    preferredCities: ["Houston", "Katy", "Sugar Land"],
-    preferredZips: ["77002", "77007", "77008", "77449", "77479"],
-    maxPurchasePrice: 500000,
-    propertyTypes: ["Multi-Family", "Commercial"],
-    minBedrooms: 4,
-    minBaths: 3,
-    desiredROI: 15,
-    notes: "Specializes in duplexes and small apartment buildings. Will look at value-add opportunities needing rehab.",
-    createdAt: "2026-06-20T14:00:00Z",
-  },
-  {
-    id: "b3",
-    name: "DFW Renovation Partners",
-    email: "deals@dfwreno.com",
-    phone: "(214) 555-3303",
-    preferredCities: ["Dallas", "Fort Worth", "Arlington", "Plano", "Garland"],
-    preferredZips: ["75201", "76102", "76010", "75023", "75040"],
-    maxPurchasePrice: 400000,
-    propertyTypes: ["SFR", "Townhouse"],
-    minBedrooms: 2,
-    minBaths: 1,
-    desiredROI: 18,
-    notes: "Fix-and-flip specialist. Looking for distressed properties with 30%+ margins. Can close in 5 days.",
-    createdAt: "2026-07-01T09:30:00Z",
-  },
-  {
-    id: "b4",
-    name: "Alamo City Investments",
-    email: "offers@alamocityinvestments.com",
-    phone: "(210) 555-4404",
-    preferredCities: ["San Antonio", "New Braunfels"],
-    preferredZips: ["78209", "78230", "78249", "78130"],
-    maxPurchasePrice: 250000,
-    propertyTypes: ["SFR"],
-    minBedrooms: 3,
-    minBaths: 2,
-    desiredROI: 14,
-    notes: "Long-term rental portfolio. Will consider homes needing moderate rehab. Prefers north side SA.",
-    createdAt: "2026-07-05T11:45:00Z",
-  },
-  {
-    id: "b5",
-    name: "Lone Star Buy & Hold",
-    email: "deals@lonestarhold.com",
-    phone: "(512) 555-5505",
-    preferredCities: ["Austin", "San Antonio", "Houston", "Dallas"],
-    preferredZips: [],
-    maxPurchasePrice: 300000,
-    propertyTypes: ["SFR", "Multi-Family", "Townhouse"],
-    minBedrooms: 2,
-    minBaths: 1,
-    desiredROI: 10,
-    notes: "Statewide buyer. Looking for turnkey rentals or light rehab. 10+ properties in portfolio. Reliable closer.",
-    createdAt: "2026-07-10T16:20:00Z",
-  },
-  {
-    id: "b6",
-    name: "Cedar Park Fix & Flip Co",
-    email: "deals@cedarparkflip.com",
-    phone: "(512) 555-6606",
-    preferredCities: ["Cedar Park", "Leander", "Round Rock", "Georgetown"],
-    preferredZips: ["78613", "78641", "78664", "78626"],
-    maxPurchasePrice: 200000,
-    propertyTypes: ["SFR"],
-    minBedrooms: 3,
-    minBaths: 2,
-    desiredROI: 22,
-    notes: "Aggressive fix-and-flipper. Buys heavily distressed properties. All cash, closes in 3-5 days.",
-    createdAt: "2026-07-15T08:00:00Z",
-  },
-  {
-    id: "b7",
-    name: "Metroplex Equity Group",
-    email: "deals@metroplexequity.com",
-    phone: "(469) 555-7707",
-    preferredCities: ["Dallas", "Plano", "Frisco", "McKinney", "Richardson"],
-    preferredZips: ["75201", "75023", "75034", "75070", "75080"],
-    maxPurchasePrice: 450000,
-    propertyTypes: ["SFR", "Multi-Family", "Townhouse", "Condo"],
-    minBedrooms: 2,
-    minBaths: 2,
-    desiredROI: 13,
-    notes: "Institutional buyer. Prefers newer construction (post-2000). B-class+ neighborhoods only. 14-day close.",
-    createdAt: "2026-07-20T13:00:00Z",
-  },
-  {
-    id: "b8",
-    name: "Texas Land & Commercial",
-    email: "acquisitions@txlandcommercial.com",
-    phone: "(281) 555-8808",
-    preferredCities: ["Houston", "Austin", "Dallas", "Fort Worth", "San Antonio"],
-    preferredZips: [],
-    maxPurchasePrice: 500000,
-    propertyTypes: ["Commercial", "Multi-Family", "Land"],
-    minBedrooms: 0,
-    minBaths: 0,
-    desiredROI: 12,
-    notes: "Commercial and land specialist. Looking for mixed-use, retail, and small apartment complexes. Joint venture partner.",
-    createdAt: "2026-07-22T10:30:00Z",
-  },
-];
-
-// --- Available Deals (Qualified+ status leads from CRM) ---
-
-const MOCK_DEALS: DealForMatch[] = [
-  {
-    id: "d1",
-    leadName: "Robert Kim",
-    propertyAddress: "77 Canyon Ridge Rd",
-    propertyCity: "Round Rock",
-    propertyState: "TX",
-    propertyZip: "78664",
-    propertyType: "Single Family",
-    status: "qualified",
-    estimatedMAO: 275000,
-    repairs: "15,000 - 25,000",
-  },
-  {
-    id: "d2",
-    leadName: "Linda Thompson",
-    propertyAddress: "333 Birch Street",
-    propertyCity: "Fort Worth",
-    propertyState: "TX",
-    propertyZip: "76102",
-    propertyType: "Single Family",
-    status: "appointment",
-    estimatedMAO: 145000,
-    repairs: "40,000 - 60,000",
-  },
-  {
-    id: "d3",
-    leadName: "Michael Davis",
-    propertyAddress: "612 Cedar Court",
-    propertyCity: "Plano",
-    propertyState: "TX",
-    propertyZip: "75023",
-    propertyType: "Single Family",
-    status: "offer",
-    estimatedMAO: 340000,
-    repairs: "5,000 - 10,000",
-  },
-  {
-    id: "d4",
-    leadName: "Sarah Johnson",
-    propertyAddress: "1890 Walnut Way",
-    propertyCity: "Arlington",
-    propertyState: "TX",
-    propertyZip: "76010",
-    propertyType: "Single Family",
-    status: "contract",
-    estimatedMAO: 220000,
-    repairs: "12,000 - 18,000",
-  },
-];
 
 // --- Helpers ---
 
@@ -1011,7 +917,7 @@ function BuyerListView({
             />
           </svg>
           <p className="text-sm text-gray-500">
-            {search.trim() ? "No buyers match your search." : "No buyers yet. Add your first cash buyer!"}
+            {search.trim() ? "No buyers match your search." : "No buyers yet — add your first cash buyer"}
           </p>
         </div>
       ) : (
@@ -1095,6 +1001,56 @@ function MatchingView({
     contract: "Contract Signed",
   };
 
+  // Honest empty states — no fabricated buyers or deals (audit #11).
+  if (buyers.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-navy-700 bg-navy-800/30 p-12 text-center">
+        <svg
+          className="mx-auto mb-3 h-10 w-10 text-navy-600"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={1.5}
+            d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"
+          />
+        </svg>
+        <p className="text-sm text-gray-500">No buyers yet — add your first cash buyer</p>
+        <p className="mt-1 text-xs text-gray-600">
+          Buyers added on the “Buyer List” tab are matched against every deal in this view.
+        </p>
+      </div>
+    );
+  }
+
+  if (deals.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-navy-700 bg-navy-800/30 p-12 text-center">
+        <svg
+          className="mx-auto mb-3 h-10 w-10 text-navy-600"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={1.5}
+            d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+          />
+        </svg>
+        <p className="text-sm text-gray-500">No deals ready for buyer matching yet</p>
+        <p className="mt-1 text-xs text-gray-600">
+          Deals appear here when a lead reaches the offer or contract stages of the pipeline and has a
+          saved deal analysis (ARV, offer, repairs) from the Calculator.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="grid gap-6 lg:grid-cols-3">
       {/* Deal List */}
@@ -1126,7 +1082,7 @@ function MatchingView({
               </div>
               <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
                 <span className="rounded bg-navy-700 px-1.5 py-0.5 text-gray-400">
-                  {deal.propertyType}
+                  {deal.propertyType || "Type not listed"}
                 </span>
                 <span className="rounded bg-navy-700 px-1.5 py-0.5 text-gray-400">
                   MAO: {formatCurrency(deal.estimatedMAO)}
@@ -1203,7 +1159,7 @@ function MatchingView({
                 {selectedResult.deal.propertyState} {selectedResult.deal.propertyZip}
               </p>
               <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                <Badge color="blue">{selectedResult.deal.propertyType}</Badge>
+                <Badge color="blue">{selectedResult.deal.propertyType || "Type not listed"}</Badge>
                 <Badge color="gold">MAO: {formatCurrency(selectedResult.deal.estimatedMAO)}</Badge>
                 <span className="rounded bg-navy-700 px-1.5 py-0.5 text-gray-400">
                   Repairs: {selectedResult.deal.repairs}
@@ -1288,24 +1244,46 @@ function MatchingView({
 // --- Page Component ---
 
 function BuyersPage() {
-  const [buyers, setBuyers] = useState<Buyer[]>(MOCK_BUYERS);
+  const [buyers, setBuyers] = useState<Buyer[]>([]);
+  const [deals, setDeals] = useState<DealForMatch[]>([]);
   const [viewTab, setViewTab] = useState<ViewTab>("list");
   const [search, setSearch] = useState("");
   const [selectedBuyer, setSelectedBuyer] = useState<Buyer | null>(null);
   const [editingBuyer, setEditingBuyer] = useState<Partial<Buyer> | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [dealsLoading, setDealsLoading] = useState(true);
 
-  // Load buyers from server on mount (falls back to mock data)
+  // Load buyers from the real database. An empty result stays empty — the UI
+  // shows an honest empty state instead of fabricated people (audit #11).
   useEffect(() => {
     let cancelled = false;
     fetchBuyers()
       .then((data: Buyer[]) => {
-        if (!cancelled && data && data.length > 0) setBuyers(data);
+        if (!cancelled) setBuyers(data);
       })
-      .catch(() => {})
+      .catch(() => {
+        if (!cancelled) setBuyers([]);
+      })
       .finally(() => {
         if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Load real matchable deals (leads at offer/contract stages with a saved
+  // deal analysis). No fabricated deals when none exist (audit #11).
+  useEffect(() => {
+    let cancelled = false;
+    fetchMatchableDeals()
+      .then((data: DealForMatch[]) => {
+        if (!cancelled) setDeals(data);
+      })
+      .catch(() => {
+        if (!cancelled) setDeals([]);
+      })
+      .finally(() => {
+        if (!cancelled) setDealsLoading(false);
       });
     return () => { cancelled = true; };
   }, []);
@@ -1322,9 +1300,8 @@ function BuyersPage() {
   }
 
   async function handleSave(data: Omit<Buyer, "id" | "createdAt">) {
-    if (editingBuyer?.id) {
-      // Update in DB
-      try {
+    try {
+      if (editingBuyer?.id) {
         const updated = await updateBuyerDb({
           data: {
             id: editingBuyer.id,
@@ -1337,17 +1314,7 @@ function BuyersPage() {
         setBuyers((prev) =>
           prev.map((b) => (b.id === editingBuyer.id ? updated : b))
         );
-      } catch {
-        // Fallback: local-only update
-        setBuyers((prev) =>
-          prev.map((b) =>
-            b.id === editingBuyer.id ? { ...b, ...data } : b
-          )
-        );
-      }
-    } else {
-      // Add to DB
-      try {
+      } else {
         const created = await addBuyerDb({
           data: {
             name: data.name,
@@ -1357,25 +1324,23 @@ function BuyersPage() {
           },
         });
         setBuyers((prev) => [...prev, created]);
-      } catch {
-        // Fallback: local-only add with temporary ID
-        const newBuyer: Buyer = {
-          ...data,
-          id: `temp-${Date.now()}`,
-          createdAt: new Date().toISOString(),
-        };
-        setBuyers((prev) => [...prev, newBuyer]);
       }
+      setShowForm(false);
+      setEditingBuyer(null);
+    } catch {
+      // No local-only fallback: an unsaved buyer must never appear in the list.
+      alert("Couldn't save the buyer — the database is unavailable. No changes were made.");
     }
-    setShowForm(false);
-    setEditingBuyer(null);
   }
 
   async function handleDelete(id: string) {
-    setBuyers((prev) => prev.filter((b) => b.id !== id));
-    setSelectedBuyer(null);
-    // Delete from DB (fire-and-forget)
-    deleteBuyerDb({ data: { id } }).catch(() => {});
+    try {
+      await deleteBuyerDb({ data: { id } });
+      setBuyers((prev) => prev.filter((b) => b.id !== id));
+      setSelectedBuyer(null);
+    } catch {
+      alert("Couldn't delete the buyer — the database is unavailable. No changes were made.");
+    }
   }
 
   function handleSelectBuyer(buyer: Buyer) {
@@ -1451,17 +1416,27 @@ function BuyersPage() {
       {/* Content */}
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         {viewTab === "list" ? (
-          <BuyerListView
-            buyers={buyers}
-            search={search}
-            onSearchChange={setSearch}
-            onSelect={handleSelectBuyer}
-            onAdd={handleAdd}
-          />
+          loading && buyers.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-navy-700 bg-navy-800/30 p-12 text-center">
+              <p className="text-sm text-gray-500">Loading buyers…</p>
+            </div>
+          ) : (
+            <BuyerListView
+              buyers={buyers}
+              search={search}
+              onSearchChange={setSearch}
+              onSelect={handleSelectBuyer}
+              onAdd={handleAdd}
+            />
+          )
+        ) : dealsLoading ? (
+          <div className="rounded-xl border border-dashed border-navy-700 bg-navy-800/30 p-12 text-center">
+            <p className="text-sm text-gray-500">Loading deals…</p>
+          </div>
         ) : (
           <MatchingView
             buyers={buyers}
-            deals={MOCK_DEALS}
+            deals={deals}
             onSelectBuyer={handleSelectBuyer}
           />
         )}
