@@ -27,6 +27,11 @@ interface Lead {
   time_in_stage?: string; // humanized time since the lead entered its current stage
   created_at: string;
   score?: number;
+  trace_status: string; // NOT_TRACED / IN_PROGRESS / TRACED / STALLED / FAILED / MANUAL
+  trace_source: string | null;
+  traced_at: string | null;
+  dnc_flag: string | null;
+  contactable: boolean;
 }
 
 interface PipelineStageInfo {
@@ -158,6 +163,8 @@ const fetchLeads = createServerFn({ method: "GET" }).handler(async () => {
         l.reason_for_selling, l.desired_timeline, l.mortgage_status,
         l.notes, l.lead_source, l.status, l.created_at,
         COALESCE(NULLIF(l.pipeline_stage, ''), 'new_lead') AS pipeline_stage,
+        COALESCE(l.trace_status, 'NOT_TRACED') AS trace_status,
+        l.trace_source, l.traced_at, l.dnc_flag, l.contactable,
         COALESCE(pe.entered_at, l.created_at) AS stage_entered_at
       FROM leads l
       LEFT JOIN LATERAL (
@@ -257,6 +264,43 @@ const fetchLeadSmsLogs = createServerFn({ method: "GET" })
   });
 
 const skipTrace = createServerFn({ method: "POST" }).validator((data: unknown) => data as { ids?: string[] }).handler(async ({ data }) => { try { const { skipTraceLeads } = await import("~/lib/skip-trace"); return await skipTraceLeads(data.ids); } catch (e) { return { success: false, updated: 0, error: e instanceof Error ? e.message : "Skip trace failed" }; } });
+// --- Skip-trace monitor (PH1-B1) ---
+const fetchSkipTraceJobs = createServerFn({ method: "GET" }).handler(async () => {
+  try {
+    const { listSkipTraceJobs, getTraceSummary } = await import("~/lib/skip-trace");
+    const [jobs, summary] = await Promise.all([listSkipTraceJobs(), getTraceSummary()]);
+    return { jobs: jobs.map((j) => ({ ...j })), summary };
+  } catch {
+    return { jobs: [], summary: null };
+  }
+});
+const runMonitorNow = createServerFn({ method: "POST" }).handler(async () => {
+  try {
+    const { detectStalledJobs } = await import("~/lib/skip-trace");
+    return await detectStalledJobs();
+  } catch (e) {
+    return { stalled: [], notificationsCreated: 0, error: e instanceof Error ? e.message : "Monitor check failed" };
+  }
+});
+const recordManualTrace = createServerFn({ method: "POST" })
+  .validator((data: unknown) => {
+    const d = data as { leadId: string; phone?: string; email?: string; dncFlag?: string };
+    if (!d?.leadId) throw new Error("leadId is required");
+    return d;
+  })
+  .handler(async ({ data }) => {
+    try {
+      const { markTraceResult } = await import("~/lib/skip-trace");
+      return await markTraceResult([data.leadId], {
+        source: "manual",
+        dncFlag: data.dncFlag || null,
+        phone: data.phone || null,
+        email: data.email || null,
+      });
+    } catch (e) {
+      return { success: false, updated: 0, error: e instanceof Error ? e.message : "Manual trace failed" };
+    }
+  });
 const startOutreach = createServerFn({ method: "POST" }).validator((data: unknown) => data as { leadId: string }).handler(async ({ data }) => { try { const { startSmsOutreach } = await import("~/lib/outreach"); return await startSmsOutreach(data.leadId); } catch (e) { return { success: false, error: e instanceof Error ? e.message : "Outreach failed" }; } });
 const bulkOutreach = createServerFn({ method: "POST" }).handler(async () => { try { const { startBulkOutreach } = await import("~/lib/outreach"); return await startBulkOutreach(); } catch (e) { return { success: false, started: 0, error: e instanceof Error ? e.message : "Outreach failed" }; } });
 const startEmailOutreach = createServerFn({ method: "POST" }).validator((data: unknown) => data as { leadId: string }).handler(async ({ data }) => { try { const { startEmailOutreach: runDrip } = await import("~/lib/email-outreach"); return await runDrip(data.leadId); } catch (e) { return { success: false, error: e instanceof Error ? e.message : "Email outreach failed" }; } });
@@ -426,6 +470,145 @@ function StatusBadge({ stage, stages }: { stage: string; stages: PipelineStageIn
     </span>
   );
 }
+// --- Skip-trace status badge (PH1-B1) ---
+const TRACE_BADGE_CLASSES: Record<string, string> = {
+  NOT_TRACED: "bg-slate-500/20 text-slate-300 border-slate-500/30",
+  IN_PROGRESS: "bg-blue-500/20 text-blue-300 border-blue-500/30",
+  TRACED: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+  STALLED: "bg-red-500/20 text-red-300 border-red-500/30",
+  FAILED: "bg-red-500/20 text-red-300 border-red-500/30",
+  MANUAL: "bg-gold-500/20 text-gold-300 border-gold-500/30",
+};
+function TraceBadge({ status }: { status: string }) {
+  const cls = TRACE_BADGE_CLASSES[status] || TRACE_BADGE_CLASSES.NOT_TRACED;
+  return (
+    <span className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-medium ${cls}`}>
+      {status}
+    </span>
+  );
+}
+function ContactableDot({ contactable }: { contactable: boolean }) {
+  return contactable ? (
+    <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" title="Contactable — has valid contact info" />
+  ) : (
+    <span className="inline-block h-1.5 w-1.5 rounded-full bg-slate-600" title="Not contactable — no usable contact info" />
+  );
+}
+// --- Skip-trace job panel types (mirror of lib/skip-trace.ts) ---
+interface SkipTraceJobRow {
+  id: number;
+  list_name: string;
+  propstream_group_id: string | null;
+  status: string;
+  total_leads: number | null;
+  traced_count: number;
+  started_at: string;
+  last_progress_at: string;
+  error_message: string | null;
+  created_at: string;
+}
+function SkipTracePanel({
+  jobs,
+  summary,
+  onRefresh,
+  onMonitor,
+  busy,
+  lastMessage,
+}: {
+  jobs: SkipTraceJobRow[];
+  summary: { total: number; contactable: number; nonContactable: number } | null;
+  onRefresh: () => void;
+  onMonitor: () => void;
+  busy: boolean;
+  lastMessage: string | null;
+}) {
+  return (
+    <div className="mt-6 rounded-xl border border-navy-700 bg-navy-800/40 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-white">Skip Trace Monitor</h2>
+          <p className="text-xs text-gray-500">
+            Tracks PropStream Connect / manual trace batches; flags stalled jobs and refuses duplicate runs.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onMonitor}
+            disabled={busy}
+            className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-300 disabled:opacity-50"
+          >
+            Check for stalls
+          </button>
+          <button
+            onClick={onRefresh}
+            disabled={busy}
+            className="rounded-lg border border-navy-600 bg-navy-700 px-3 py-1.5 text-xs font-medium text-gray-300 disabled:opacity-50"
+          >
+            Refresh
+          </button>
+        </div>
+      </div>
+      {summary && (
+        <div className="mt-3 flex flex-wrap gap-2 text-xs">
+          <span className="rounded-full border border-navy-700 bg-navy-900 px-2.5 py-1 text-gray-400">
+            {summary.total} leads
+          </span>
+          <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-emerald-300">
+            {summary.contactable} contactable
+          </span>
+          <span className="rounded-full border border-slate-600/40 bg-slate-700/30 px-2.5 py-1 text-slate-300">
+            {summary.nonContactable} not contactable
+          </span>
+        </div>
+      )}
+      {lastMessage && (
+        <div className="mt-3 rounded-lg border border-navy-700 bg-navy-900/60 px-3 py-2 text-xs text-gray-300">
+          {lastMessage}
+        </div>
+      )}
+      {jobs.length === 0 ? (
+        <p className="mt-3 text-xs text-gray-500">No skip-trace jobs yet — start one from a lead's Skip Trace button.</p>
+      ) : (
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[560px] text-left text-xs">
+            <thead>
+              <tr className="border-b border-navy-700 text-gray-500">
+                <th className="px-2 py-1.5 font-medium">Job</th>
+                <th className="px-2 py-1.5 font-medium">List / Group</th>
+                <th className="px-2 py-1.5 font-medium">Status</th>
+                <th className="px-2 py-1.5 font-medium">Progress</th>
+                <th className="px-2 py-1.5 font-medium">Last progress</th>
+                <th className="px-2 py-1.5 font-medium">Error</th>
+              </tr>
+            </thead>
+            <tbody>
+              {jobs.map((job) => (
+                <tr key={job.id} className="border-b border-navy-700/50">
+                  <td className="px-2 py-1.5 font-medium text-gray-200">#{job.id}</td>
+                  <td className="px-2 py-1.5 text-gray-400">
+                    {job.list_name}
+                    {job.propstream_group_id ? (
+                      <span className="block text-[10px] text-gray-600">{job.propstream_group_id}</span>
+                    ) : null}
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <TraceBadge status={job.status} />
+                  </td>
+                  <td className="px-2 py-1.5 text-gray-400">
+                    {job.traced_count}
+                    {job.total_leads != null ? ` / ${job.total_leads}` : ""}
+                  </td>
+                  <td className="px-2 py-1.5 text-gray-500">{formatDate(job.last_progress_at)}</td>
+                  <td className="px-2 py-1.5 text-red-400/80">{job.error_message || ""}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function LeadCard({
   lead,
@@ -442,8 +625,19 @@ function LeadCard({
       className="cursor-pointer rounded-xl border border-navy-700 bg-navy-800/50 p-4 transition-all hover:border-navy-600 hover:bg-navy-800/80 hover:shadow-lg"
     >
       <div className="mb-2 flex items-start justify-between gap-2">
-        <h4 className="text-sm font-semibold text-white">{lead.full_name}</h4>
+        <h4 className="flex items-center gap-1.5 text-sm font-semibold text-white">
+          <ContactableDot contactable={lead.contactable} />
+          {lead.full_name}
+        </h4>
         <StatusBadge stage={lead.pipeline_stage} stages={stages} />
+      </div>
+      <div className="mb-2 flex flex-wrap items-center gap-1.5">
+        <TraceBadge status={lead.trace_status} />
+        {lead.dnc_flag ? (
+          <span className="rounded border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-[10px] font-medium text-red-300">
+            {lead.dnc_flag}
+          </span>
+        ) : null}
       </div>
       <p className="text-xs text-gray-400">
         {lead.property_city}, {lead.property_state}
@@ -487,6 +681,7 @@ function LeadDetailModal({
   onStartOutreach,
   onStartEmailOutreach,
   onSendMail,
+  onManualTrace,
   automationBusy,
   pipelineHistory,
 }: {
@@ -502,11 +697,41 @@ function LeadDetailModal({
   onStartOutreach: (id: string) => void;
   onStartEmailOutreach: (id: string) => void;
   onSendMail: (leadId: string, campaign?: string) => void;
+  onManualTrace: (leadId: string, contact: { phone?: string; email?: string; dncFlag?: string }) => Promise<{ success: boolean; error?: string }>;
   automationBusy: boolean;
   pipelineHistory: PipelineHistoryEntry[];
 }) {
   const [smsMessage, setSmsMessage] = useState("");
   const [mailCampaign, setMailCampaign] = useState("auto");
+  // Backup trace form state (PH1-B1): manual contact-info entry works regardless
+  // of which trace service is used.
+  const [showBackupTrace, setShowBackupTrace] = useState(false);
+  const [tracePhone, setTracePhone] = useState("");
+  const [traceEmail, setTraceEmail] = useState("");
+  const [traceDnc, setTraceDnc] = useState(false);
+  const [traceSaving, setTraceSaving] = useState(false);
+  const [traceResult, setTraceResult] = useState<{ success: boolean; error?: string } | null>(null);
+  const handleSaveManualTrace = async () => {
+    if (!tracePhone.trim() && !traceEmail.trim()) {
+      setTraceResult({ success: false, error: "Enter at least a phone number or an email address." });
+      return;
+    }
+    setTraceSaving(true);
+    setTraceResult(null);
+    try {
+      const result = await onManualTrace(lead.id, {
+        phone: tracePhone.trim() || undefined,
+        email: traceEmail.trim() || undefined,
+        dncFlag: traceDnc ? "DNC" : undefined,
+      });
+      setTraceResult(result);
+      if (result.success) setShowBackupTrace(false);
+    } catch {
+      setTraceResult({ success: false, error: "Failed to save contact info" });
+    } finally {
+      setTraceSaving(false);
+    }
+  };
 
   // Valid next stages for the lead's current stage (only these are offered).
   const nextOptions = useMemo(() => {
@@ -588,6 +813,7 @@ function LeadDetailModal({
           {/* Actions */}
           <div className="flex flex-wrap gap-2">
             <button onClick={() => onSkipTrace(lead.id)} disabled={automationBusy} className="rounded-lg border border-teal-500/30 bg-teal-500/10 px-4 py-2 text-sm font-medium text-teal-300 disabled:opacity-50">Skip Trace</button>
+            <button onClick={() => setShowBackupTrace((v) => !v)} className="rounded-lg border border-gold-500/30 bg-gold-500/10 px-4 py-2 text-sm font-medium text-gold-300">Backup Trace</button>
             <button onClick={() => onStartOutreach(lead.id)} disabled={automationBusy || !lead.phone} className="rounded-lg border border-gold-500/30 bg-gold-500/10 px-4 py-2 text-sm font-medium text-gold-300 disabled:opacity-50">Start SMS Outreach</button>
             <button onClick={() => onStartEmailOutreach(lead.id)} disabled={automationBusy || !lead.email} title={!lead.email ? "Lead has no email address" : "Send email 1 now, schedule follow-ups on days 1, 3, 5, 10"} className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-sm font-medium text-blue-300 disabled:opacity-50">Start Email Outreach</button>
             <select
@@ -639,6 +865,78 @@ function LeadDetailModal({
             )}
           </div>
 
+          {/* Trace & Contact (PH1-B1) */}
+          <div className="rounded-lg border border-navy-700 bg-navy-900/50 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-white">Skip Trace Status</h3>
+              <span className="flex items-center gap-2">
+                <ContactableDot contactable={lead.contactable} />
+                <TraceBadge status={lead.trace_status} />
+              </span>
+            </div>
+            <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-4">
+              <DetailItem label="Trace source" value={lead.trace_source || "—"} />
+              <DetailItem label="Traced at" value={lead.traced_at ? new Date(lead.traced_at).toLocaleString() : "—"} />
+              <DetailItem label="DNC flag" value={lead.dnc_flag || "—"} />
+              <DetailItem label="Contactable" value={lead.contactable ? "Yes" : "No"} />
+            </dl>
+            {lead.phone && <p className="mt-2 text-xs text-gray-400">Phone: <span className="text-gray-200">{lead.phone}</span></p>}
+            {lead.email && <p className="mt-1 text-xs text-gray-400">Email: <span className="text-gray-200">{lead.email}</span></p>}
+            {showBackupTrace && (
+              <div className="mt-4 rounded-lg border border-gold-500/30 bg-navy-900 p-3">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-gold-400">
+                  Backup Trace — manual contact entry
+                </h4>
+                <p className="mt-1 text-[11px] text-gray-500">
+                  Record contact info found outside the system (PropStream Connect, county records, public listings).
+                  Marks the lead TRACED with source "manual". Works regardless of which trace service is used.
+                </p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="mb-1 block text-[11px] text-gray-400">Phone</span>
+                    <input
+                      value={tracePhone}
+                      onChange={(e) => setTracePhone(e.target.value)}
+                      placeholder="+12105550199"
+                      className="w-full rounded-lg border border-navy-700 bg-navy-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-gold-500 focus:outline-none"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-[11px] text-gray-400">Email</span>
+                    <input
+                      value={traceEmail}
+                      onChange={(e) => setTraceEmail(e.target.value)}
+                      placeholder="owner@example.com"
+                      className="w-full rounded-lg border border-navy-700 bg-navy-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-gold-500 focus:outline-none"
+                    />
+                  </label>
+                </div>
+                <label className="mt-3 flex items-center gap-2 text-xs text-gray-300">
+                  <input
+                    type="checkbox"
+                    checked={traceDnc}
+                    onChange={(e) => setTraceDnc(e.target.checked)}
+                    className="rounded border-navy-600 bg-navy-800"
+                  />
+                  On the Do-Not-Call list (DNC flag) — suppresses phone outreach
+                </label>
+                <div className="mt-3 flex items-center gap-3">
+                  <button
+                    onClick={handleSaveManualTrace}
+                    disabled={traceSaving}
+                    className="rounded-lg bg-gold-500 px-4 py-2 text-xs font-semibold text-navy-900 hover:bg-gold-400 disabled:opacity-50"
+                  >
+                    {traceSaving ? "Saving..." : "Save Contact Info"}
+                  </button>
+                  {traceResult && (
+                    <span className={`text-xs ${traceResult.success ? "text-emerald-400" : "text-red-400"}`}>
+                      {traceResult.success ? "Saved — lead is now TRACED." : traceResult.error}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
           {/* Stage Dropdown (valid next stages only) */}
           <div>
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-gray-500">
@@ -962,6 +1260,9 @@ function ListView({
             <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-400">
               Source
             </th>
+            <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-400">
+              Trace
+            </th>
             <th
               className="cursor-pointer px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white"
               onClick={() => toggleSort("created_at")}
@@ -1014,6 +1315,12 @@ function ListView({
                 <td className="px-4 py-3 text-xs text-gray-400">
                   {getSourceLabel(lead.lead_source)}
                 </td>
+                <td className="px-4 py-3">
+                  <span className="flex items-center gap-1.5">
+                    <ContactableDot contactable={lead.contactable} />
+                    <TraceBadge status={lead.trace_status} />
+                  </span>
+                </td>
                 <td className="px-4 py-3 text-xs text-gray-500">
                   {formatDate(lead.created_at)}
                 </td>
@@ -1047,11 +1354,72 @@ function CrmPage() {
   const [smsResult, setSmsResult] = useState<{ success: boolean; error?: string } | null>(null);
   const [automationBusy, setAutomationBusy] = useState(false);
   const [pipelineHistory, setPipelineHistory] = useState<PipelineHistoryEntry[]>([]);
-  const runSkipTrace = async (ids?: string[]) => { setAutomationBusy(true); try { const result = await skipTrace({ data: { ids } }); if (!result.success) alert(result.error); else alert(`Skip trace complete: ${result.updated} lead(s) enriched.`); if (result.success && ids?.[0]) { const refreshed = await fetchLeads(); setLeads(refreshed.leads); setDbUnavailable(refreshed.dbUnavailable); setSelectedLead(refreshed.leads.find((l) => l.id === ids[0]) || null); } } catch { alert("Skip trace failed"); } finally { setAutomationBusy(false); } };
+  const runSkipTrace = async (ids?: string[]) => { setAutomationBusy(true); try { const result = await skipTrace({ data: { ids } }); if (!result.success) alert(result.error); else { alert(result.message || `Skip trace requested: ${result.updated} lead(s) marked.`); loadTraceJobs(); } if (result.success && ids?.[0]) { const refreshed = await fetchLeads(); setLeads(refreshed.leads); setDbUnavailable(refreshed.dbUnavailable); setSelectedLead(refreshed.leads.find((l) => l.id === ids[0]) || null); } } catch { alert("Skip trace failed"); } finally { setAutomationBusy(false); } };
   const runOutreach = async (id: string) => { setAutomationBusy(true); try { const result = await startOutreach({ data: { leadId: id } }); if (!result.success) alert(result.error); else alert("SMS outreach started."); } catch { alert("Outreach failed"); } finally { setAutomationBusy(false); } };
   const runEmailOutreach = async (id: string) => { setAutomationBusy(true); try { const result = await startEmailOutreach({ data: { leadId: id } }); if (!result.success) alert(result.error); else alert(`Email outreach started — Email 1 sent, ${result.scheduled || 4} follow-ups scheduled.`); } catch { alert("Email outreach failed"); } finally { setAutomationBusy(false); } };
   const runSendMail = async (id: string, campaign?: string) => { setAutomationBusy(true); try { const result = await sendMailToLead({ data: { leadId: id, campaign } }); if (!result.success) alert(result.error || "Direct mail failed"); else alert(`Postcard submitted to Click2Mail — ${result.sent} piece(s) queued.`); } catch { alert("Direct mail failed"); } finally { setAutomationBusy(false); } };
   const runBulkSendMail = async (ids: string[]) => { setAutomationBusy(true); try { const result = await bulkSendMail({ data: { ids } }); if (!result.success) alert(result.error || "Bulk direct mail failed"); else alert(`Direct mail submitted — ${result.sent} postcard(s) queued.`); } catch { alert("Bulk direct mail failed"); } finally { setAutomationBusy(false); } };
+  // --- Skip-trace monitor state (PH1-B1) ---
+  const [traceJobs, setTraceJobs] = useState<SkipTraceJobRow[]>([]);
+  const [traceSummary, setTraceSummary] = useState<{ total: number; contactable: number; nonContactable: number } | null>(null);
+  const [traceBusy, setTraceBusy] = useState(false);
+  const [traceLastMessage, setTraceLastMessage] = useState<string | null>(null);
+  const loadTraceJobs = async () => {
+    try {
+      const data = await fetchSkipTraceJobs();
+      if (data) {
+        setTraceJobs(data.jobs || []);
+        if (data.summary) {
+          setTraceSummary({ total: data.summary.total, contactable: data.summary.contactable, nonContactable: data.summary.nonContactable });
+        }
+      }
+    } catch {
+      // panel shows an honest empty state
+    }
+  };
+  const handleMonitorNow = async () => {
+    setTraceBusy(true);
+    setTraceLastMessage(null);
+    try {
+      const result = await runMonitorNow();
+      if (result && "error" in result && result.error) {
+        setTraceLastMessage(`Monitor check failed: ${result.error}`);
+      } else {
+        const stalled = result?.stalled?.length || 0;
+        setTraceLastMessage(
+          stalled > 0
+            ? `${stalled} stalled job(s) flagged — notification(s) created (${result.notificationsCreated}). Check PropStream Jobs/Activity or trigger a backup trace.`
+            : "No stalled jobs detected.",
+        );
+      }
+      await loadTraceJobs();
+    } catch {
+      setTraceLastMessage("Monitor check failed.");
+    } finally {
+      setTraceBusy(false);
+    }
+  };
+  const handleManualTrace = async (leadId: string, contact: { phone?: string; email?: string; dncFlag?: string }) => {
+    try {
+      const result = await recordManualTrace({ data: { leadId, ...contact } });
+      if (result.success) {
+        const refreshed = await fetchLeads().catch(() => null);
+        if (refreshed) {
+          setLeads(refreshed.leads);
+          setDbUnavailable(refreshed.dbUnavailable);
+          setSelectedLead((prev) => (prev ? refreshed.leads.find((l) => l.id === prev.id) ?? prev : prev));
+        }
+      }
+      return { success: result.success, error: result.error };
+    } catch {
+      return { success: false, error: "Failed to save contact info" };
+    }
+  };
+  // Load skip-trace jobs once on mount.
+  useEffect(() => {
+    loadTraceJobs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Load pipeline stages from DB (falls back to MOCK_STAGES)
   useEffect(() => {
@@ -1296,6 +1664,17 @@ function CrmPage() {
         </div>
       </div>
 
+      {/* Skip Trace Monitor panel (PH1-B1) */}
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <SkipTracePanel
+          jobs={traceJobs}
+          summary={traceSummary}
+          onRefresh={loadTraceJobs}
+          onMonitor={handleMonitorNow}
+          busy={traceBusy}
+          lastMessage={traceLastMessage}
+        />
+      </div>
       {/* Pipeline Content */}
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         {viewMode === "board" ? (
@@ -1330,6 +1709,7 @@ function CrmPage() {
           onStartOutreach={runOutreach}
           onStartEmailOutreach={runEmailOutreach}
           onSendMail={runSendMail}
+          onManualTrace={handleManualTrace}
           automationBusy={automationBusy}
           pipelineHistory={pipelineHistory}
         />

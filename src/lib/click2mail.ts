@@ -33,6 +33,8 @@ export const POSTCARD_COST_PER_PIECE = 0.6;
 export interface PostcardLead extends PostcardMergeData {
   /** DealFlow lead id — used for mail_logs linkage. */
   id: string;
+  /** Suppression flag (dnc_flag / do-not-mail) — checked before any send (PH1-B1). */
+  suppression?: string | null;
 }
 
 export type MailResult = {
@@ -259,6 +261,34 @@ export async function sendPostcards(
 ): Promise<MailResult> {
   if (!leads.length) return { success: false, sent: 0, failed: 0, error: "No leads provided" };
 
+  // Hard block (PH1-B1): never mail a suppressed lead (DNC / do-not-mail /
+  // opted-out / invalid / wrong-number flags, checked if present). Suppressed
+  // pieces are logged as failed with the reason so the audit trail is complete.
+  const MAIL_SUPPRESSED = new Set(["DNC", "DO_NOT_MAIL", "OPTED_OUT", "INVALID", "WRONG_NUMBER"]);
+  const mailAllowed: PostcardLead[] = [];
+  let mailSuppressedCount = 0;
+  for (const lead of leads) {
+    const flag = lead.suppression?.trim().toUpperCase();
+    if (flag && MAIL_SUPPRESSED.has(flag)) {
+      mailSuppressedCount++;
+      const campaign = opts.campaign || (opts.leadSources ? campaignForSource(opts.leadSources[lead.id]) : "general");
+      await logMail({
+        leadId: lead.id,
+        campaign,
+        template: campaign,
+        status: "failed",
+        cost: POSTCARD_COST_PER_PIECE,
+        error: `Suppressed (${flag}) — mail blocked by compliance hard block`,
+      });
+    } else {
+      mailAllowed.push(lead);
+    }
+  }
+  if (!mailAllowed.length) {
+    return { success: false, sent: 0, failed: mailSuppressedCount, error: "All leads are suppressed — nothing mailed" };
+  }
+  leads = mailAllowed;
+
   if (!isConfigured()) {
     for (const lead of leads) {
       const campaign = opts.campaign || (opts.leadSources ? campaignForSource(opts.leadSources[lead.id]) : "general");
@@ -352,7 +382,7 @@ export async function sendPostcardsToLeads(
   opts: { campaign?: PostcardCampaign } = {},
 ): Promise<MailResult> {
   const rows = (await sql`
-    SELECT id, full_name, property_address, property_city, property_state, property_zip, lead_source
+    SELECT id, full_name, property_address, property_city, property_state, property_zip, lead_source, dnc_flag
     FROM leads
     WHERE status NOT IN ('closed_won', 'closed_lost')
       AND (${leadIds.length ? sql`id = ANY(${leadIds})` : sql`TRUE`})
@@ -368,6 +398,7 @@ export async function sendPostcardsToLeads(
     property_state: string;
     property_zip: string;
     lead_source: string | null;
+    dnc_flag: string | null;
   }[];
 
   if (!rows.length) return { success: false, sent: 0, failed: 0, error: "No leads with mailing addresses found" };
@@ -379,6 +410,7 @@ export async function sendPostcardsToLeads(
     city: r.property_city,
     state: r.property_state,
     zip: r.property_zip,
+    suppression: r.dnc_flag,
   }));
   const leadSources: Record<string, string | null> = {};
   for (const r of rows) leadSources[r.id] = r.lead_source;

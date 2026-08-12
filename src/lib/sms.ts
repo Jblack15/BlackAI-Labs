@@ -26,6 +26,31 @@ export async function sendSms(
   message: string,
   leadId?: string,
 ): Promise<SmsResult> {
+  // Hard block (PH1-B1): nothing sends to a lead without contact info or with
+  // a suppression flag. Full compliance suppression table lands in B2; the
+  // missing-contact block is this build. Form-submitted leads (seller opted in
+  // by submitting) don't pass a leadId yet — the block applies to CRM/drip
+  // sends that address a known lead.
+  if (leadId) {
+    try {
+      const { assertLeadOutreachAllowedById } = await import("~/lib/skip-trace");
+      const check = await assertLeadOutreachAllowedById(leadId);
+      if (!check.allowed) {
+        try {
+          await sql`
+            INSERT INTO sms_logs (lead_id, to_phone, message, status)
+            VALUES (${leadId}, ${to}, ${message}, 'failed')
+          `;
+        } catch {
+          // silently ignore logging errors
+        }
+        return { success: false, error: check.reason };
+      }
+    } catch {
+      // If the compliance check itself fails, do not send — fail closed.
+      return { success: false, error: "Blocked: could not verify contact/compliance clearance for lead" };
+    }
+  }
   if (!SMS_ENABLED) {
     console.warn(
       "[sms] Channel disabled: Twilio was dropped by the owner 2026-08-12. " +

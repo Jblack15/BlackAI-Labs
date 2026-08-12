@@ -219,6 +219,21 @@ export async function sendEmail(opts: {
   text?: string;
   leadId?: string;
 }): Promise<EmailResult> {
+  // Hard block (PH1-B1): nothing sends to a known lead without contact info or
+  // with a suppression flag. Fails closed if the check itself errors.
+  if (opts.leadId) {
+    try {
+      const { assertLeadOutreachAllowedById } = await import("~/lib/skip-trace");
+      const check = await assertLeadOutreachAllowedById(opts.leadId);
+      if (!check.allowed) {
+        await logEmail({ leadId: opts.leadId, to: opts.to, subject: opts.subject, body: opts.html, status: "failed", error: check.reason });
+        return { success: false, error: check.reason };
+      }
+    } catch {
+      await logEmail({ leadId: opts.leadId, to: opts.to, subject: opts.subject, body: opts.html, status: "failed", error: "Blocked: could not verify contact/compliance clearance for lead" });
+      return { success: false, error: "Blocked: could not verify contact/compliance clearance for lead" };
+    }
+  }
   const host = process.env.SMTP_HOST;
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
@@ -303,6 +318,7 @@ export async function startBulkEmailOutreach(): Promise<{ success: boolean; star
   const rows = (await sql`
     SELECT id FROM leads
     WHERE status = 'qualified' AND email IS NOT NULL AND email <> ''
+      AND contactable = true
   `) as { id: string }[];
   let started = 0;
   for (const row of rows) {
