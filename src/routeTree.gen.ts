@@ -32,6 +32,7 @@ import { Route as SellTaxDelinquentRouteImport } from './routes/sell/tax-delinqu
 import { Route as SellTiredLandlordRouteImport } from './routes/sell/tired-landlord'
 import { Route as SellVacantRouteImport } from './routes/sell/vacant'
 import { Route as ApiOutreachDispatchRouteImport } from './routes/api/outreach/dispatch'
+import { Route as ApiSkipTraceMonitorRouteImport } from './routes/api/skip-trace/monitor'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -148,6 +149,11 @@ const ApiOutreachDispatchRoute = ApiOutreachDispatchRouteImport.update({
   path: '/api/outreach/dispatch',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiSkipTraceMonitorRoute = ApiSkipTraceMonitorRouteImport.update({
+  id: '/api/skip-trace/monitor',
+  path: '/api/skip-trace/monitor',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -173,6 +179,7 @@ export interface FileRoutesByFullPath {
   '/sell/tired-landlord': typeof SellTiredLandlordRoute
   '/sell/vacant': typeof SellVacantRoute
   '/api/outreach/dispatch': typeof ApiOutreachDispatchRoute
+  '/api/skip-trace/monitor': typeof ApiSkipTraceMonitorRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -198,6 +205,7 @@ export interface FileRoutesByTo {
   '/sell/tired-landlord': typeof SellTiredLandlordRoute
   '/sell/vacant': typeof SellVacantRoute
   '/api/outreach/dispatch': typeof ApiOutreachDispatchRoute
+  '/api/skip-trace/monitor': typeof ApiSkipTraceMonitorRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -224,6 +232,7 @@ export interface FileRoutesById {
   '/sell/tired-landlord': typeof SellTiredLandlordRoute
   '/sell/vacant': typeof SellVacantRoute
   '/api/outreach/dispatch': typeof ApiOutreachDispatchRoute
+  '/api/skip-trace/monitor': typeof ApiSkipTraceMonitorRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -251,6 +260,7 @@ export interface FileRouteTypes {
     | '/sell/tired-landlord'
     | '/sell/vacant'
     | '/api/outreach/dispatch'
+    | '/api/skip-trace/monitor'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -276,6 +286,7 @@ export interface FileRouteTypes {
     | '/sell/tired-landlord'
     | '/sell/vacant'
     | '/api/outreach/dispatch'
+    | '/api/skip-trace/monitor'
   id:
     | '__root__'
     | '/'
@@ -301,6 +312,7 @@ export interface FileRouteTypes {
     | '/sell/tired-landlord'
     | '/sell/vacant'
     | '/api/outreach/dispatch'
+    | '/api/skip-trace/monitor'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -327,6 +339,7 @@ export interface RootRouteChildren {
   SellTiredLandlordRoute: typeof SellTiredLandlordRoute
   SellVacantRoute: typeof SellVacantRoute
   ApiOutreachDispatchRoute: typeof ApiOutreachDispatchRoute
+  ApiSkipTraceMonitorRoute: typeof ApiSkipTraceMonitorRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -492,6 +505,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiOutreachDispatchRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/skip-trace/monitor': {
+      id: '/api/skip-trace/monitor'
+      path: '/api/skip-trace/monitor'
+      fullPath: '/api/skip-trace/monitor'
+      preLoaderRoute: typeof ApiSkipTraceMonitorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -519,6 +539,7 @@ const rootRouteChildren: RootRouteChildren = {
   SellTiredLandlordRoute: SellTiredLandlordRoute,
   SellVacantRoute: SellVacantRoute,
   ApiOutreachDispatchRoute: ApiOutreachDispatchRoute,
+  ApiSkipTraceMonitorRoute: ApiSkipTraceMonitorRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

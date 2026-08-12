@@ -49,6 +49,8 @@ export async function startSmsOutreach(leadId: string) {
   if (!lead.phone) return { success: false, error: "Lead has no phone number" };
   const address = `${lead.property_address}, ${lead.property_city}, ${lead.property_state}`;
   const businessName = await getBusinessName();
+  // Outreach status spine (PH1-B6): sendSms bumps the lead to contact_attempted
+  // on a real transmission — no status handling needed here.
   const result = await sendSms(lead.phone, SMS_SEQUENCE[0](lead.full_name, address, businessName), leadId);
   if (!result.success) return result;
   for (const [step, days] of [[2, 2], [3, 7]] as const)

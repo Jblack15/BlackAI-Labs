@@ -124,6 +124,19 @@ export async function sendSms(
       from: fromPhone,
     });
 
+    // Outreach status spine (PH1-B6): a real transmission advances pre-contact
+    // leads to contact_attempted (new/contactable/outreach_queued/follow_up).
+    // Inert today because the channel is disabled — the wiring must exist so
+    // the state machine advances the moment SMS is re-enabled by the owner.
+    if (leadId) {
+      try {
+        const { noteOutreachAttempt } = await import("~/lib/outreach-status");
+        await noteOutreachAttempt(leadId, "sms", "sent");
+      } catch {
+        // never let the status bump break a send
+      }
+    }
+
     await sql`
       INSERT INTO sms_logs (lead_id, to_phone, message, status, twilio_sid)
       VALUES (${leadId || null}, ${to}, ${message}, 'sent', ${twilioMsg.sid})
