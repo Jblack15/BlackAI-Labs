@@ -13,7 +13,7 @@ const content: SellerLandingProps = {
     "Want to walk away with cash instead of nothing",
   ],
   description:
-    "If you're behind on property taxes, time is not on your side. Tax authorities can foreclose and auction your property, often leaving you with nothing — even if you had substantial equity. DealFlow AI can close quickly and help you get cash for your property before it's too late.",
+    "If you're behind on property taxes, time is not on your side. Tax authorities can foreclose and auction your property, often leaving you with nothing — even if you had substantial equity. DealForge Properties can close quickly and help you get cash for your property before it's too late.",
   whyDealFlow:
     "We specialize in helping homeowners facing tax delinquency. Unlike a tax auction where you may lose everything, we pay fair cash for your property so you can satisfy your tax debt and walk away with money in your pocket.\n\nOur team understands the urgency. We can evaluate your property within hours and close in as little as 7 days — often fast enough to stop a tax sale in its tracks. We handle all the paperwork and work directly with the tax authority to resolve liens.\n\nDon't wait until the county takes your home. Reach out today and let us present a solution that works for you.",
   sellerType: "tax-delinquent",
@@ -22,7 +22,7 @@ const content: SellerLandingProps = {
 export const Route = createFileRoute("/sell/tax-delinquent")({
   head: () => ({
     meta: [
-      { title: "Tax Delinquent Property? Get Cash Fast — DealFlow AI" },
+      { title: "Tax Delinquent Property? Get Cash Fast — DealForge Properties" },
       {
         name: "description",
         content:

@@ -5,7 +5,7 @@ import { createServerFn } from "@tanstack/react-start";
 export const Route = createFileRoute("/calculator")({
   head: () => ({
     meta: [
-      { title: "Deal Analysis Calculator — DealFlow AI" },
+      { title: "Deal Analysis Calculator — DealForge Properties" },
       {
         name: "description",
         content:

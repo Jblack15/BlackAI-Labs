@@ -5,12 +5,12 @@ export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       {
-        title: "DealFlow AI — Sell Your House Fast For Cash | No Repairs, No Fees",
+        title: "DealForge Properties — Sell Your House Fast For Cash | No Repairs, No Fees",
       },
       {
         name: "description",
         content:
-          "Get a fair cash offer for your home in 24 hours. Close in 7 days. No repairs, no agents, no commissions. DealFlow AI makes selling simple.",
+          "Get a fair cash offer for your home in 24 hours. Close in 7 days. No repairs, no agents, no commissions. DealForge Properties makes selling simple.",
       },
     ],
   }),
@@ -56,7 +56,7 @@ function Home() {
           <div className="mt-12">
             <img
               src="/hero-banner.png"
-              alt="DealFlow AI — Sell Your House Fast For Cash"
+              alt="DealForge Properties — Sell Your House Fast For Cash"
               className="mx-auto w-full max-w-3xl rounded-xl shadow-2xl shadow-navy-950/50"
             />
           </div>
@@ -67,7 +67,7 @@ function Home() {
       <section className="border-t border-navy-700 px-4 py-20 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-6xl">
           <h2 className="text-center text-3xl font-bold text-white sm:text-4xl">
-            Why Sell to DealFlow AI?
+            Why Sell to DealForge Properties?
           </h2>
           <div className="mt-12 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
             {[
@@ -165,30 +165,19 @@ function Home() {
         </div>
       </section>
 
-      {/* Testimonials Placeholder */}
+      {/* Testimonials — honest placeholder (no fabricated quotes) */}
       <section className="border-t border-navy-700 px-4 py-20 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-4xl text-center">
           <h2 className="text-3xl font-bold text-white sm:text-4xl">
-            What Homeowners Say
+            Testimonials
           </h2>
-          <div className="mt-10 grid gap-6 sm:grid-cols-2">
-            {[
-              {
-                quote:
-                  "I needed to sell my mother's house after she passed. DealFlow AI made it painless. Fair offer, fast close. No stress.",
-                author: "— Michael R., Probate Sale",
-              },
-              {
-                quote:
-                  "Had code violations and couldn't list with an agent. DealFlow AI bought it as-is, closed in 10 days. Couldn't be happier.",
-                author: "— Lisa T., Code Violation Property",
-              },
-            ].map((t, i) => (
-              <div key={i} className="rounded-xl border border-navy-700 bg-navy-800/50 p-6 text-left">
-                <p className="text-gray-300 italic">"{t.quote}"</p>
-                <p className="mt-4 text-sm font-medium text-gold-500">{t.author}</p>
-              </div>
-            ))}
+          <p className="mt-4 text-gray-400">
+            Appearing as real deals close. We only publish stories from actual
+            sellers we've worked with — no invented quotes.
+          </p>
+          <div className="mt-10 rounded-xl border border-dashed border-navy-600 bg-navy-800/30 p-8 text-sm text-gray-500">
+            No deals closed yet — testimonials will appear here once we have real
+            closings to share.
           </div>
         </div>
       </section>

@@ -13,7 +13,7 @@ const content: SellerLandingProps = {
     "Just want to be done with the property and the headache",
   ],
   description:
-    "Evictions are expensive, time-consuming, and emotionally draining. If you're dealing with a difficult eviction situation, DealFlow AI can take the property off your hands. We buy rentals with problem tenants — you walk away with cash and peace of mind.",
+    "Evictions are expensive, time-consuming, and emotionally draining. If you're dealing with a difficult eviction situation, DealForge Properties can take the property off your hands. We buy rentals with problem tenants — you walk away with cash and peace of mind.",
   whyDealFlow:
     "An eviction can drag on for months, costing you mortgage payments, legal fees, and lost rent — all while your property may be getting damaged. Even after the eviction, you're often left with a trashed unit that needs thousands in repairs before you can re-rent or sell.\n\nWe offer a way out. Sell the property to us as-is, tenants and all. We'll handle the eviction process after closing. You get a fair cash price, stop the financial bleeding, and move on with your life immediately.\n\nDon't let a bad tenant situation drain your finances and energy. Get a cash offer today.",
   sellerType: "eviction",
@@ -22,7 +22,7 @@ const content: SellerLandingProps = {
 export const Route = createFileRoute("/sell/eviction")({
   head: () => ({
     meta: [
-      { title: "Eviction Problems? Sell Your Rental — DealFlow AI" },
+      { title: "Eviction Problems? Sell Your Rental — DealForge Properties" },
       {
         name: "description",
         content:

@@ -13,7 +13,7 @@ const content: SellerLandingProps = {
     "Ready for a guaranteed sale without more waiting",
   ],
   description:
-    "An expired listing is frustrating — months of showings, open houses, and price cuts with nothing to show for it. DealFlow AI offers a guaranteed sale. No more waiting, no more showings, no more uncertainty. Just a fair cash offer and a fast close.",
+    "An expired listing is frustrating — months of showings, open houses, and price cuts with nothing to show for it. DealForge Properties offers a guaranteed sale. No more waiting, no more showings, no more uncertainty. Just a fair cash offer and a fast close.",
   whyDealFlow:
     "When your listing expires, it's easy to feel defeated. You did everything right — priced competitively, kept the house spotless, accommodated endless showings — and still it didn't sell. The traditional market has failed you, but that doesn't mean you're out of options.\n\nWe buy homes directly, cutting out the uncertainty of the MLS. No more waiting for the right buyer to come along. No more wondering if the next showing will finally lead to an offer. We evaluate your property and make a firm cash offer within 24 hours.\n\nYour expired listing isn't the end of the road — it's an opportunity for a fresh start. Get a cash offer today.",
   sellerType: "expired-listing",
@@ -22,7 +22,7 @@ const content: SellerLandingProps = {
 export const Route = createFileRoute("/sell/expired-listing")({
   head: () => ({
     meta: [
-      { title: "Listing Expired? Sell Directly — DealFlow AI" },
+      { title: "Listing Expired? Sell Directly — DealForge Properties" },
       {
         name: "description",
         content:

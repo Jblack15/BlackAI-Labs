@@ -13,7 +13,7 @@ const content: SellerLandingProps = {
     "Need to sell fast before the bank takes your home",
   ],
   description:
-    "Foreclosure is stressful, but you have options. Selling your home before the auction can protect your credit, give you cash to start fresh, and let you leave on your own terms. DealFlow AI can close fast — often before the foreclosure date.",
+    "Foreclosure is stressful, but you have options. Selling your home before the auction can protect your credit, give you cash to start fresh, and let you leave on your own terms. DealForge Properties can close fast — often before the foreclosure date.",
   whyDealFlow:
     "When you're in pre-foreclosure, every day matters. You need a buyer who can move quickly and reliably. We evaluate properties fast and can close in as little as 7 days — potentially stopping the foreclosure process in its tracks.\n\nA foreclosure on your record can impact your ability to rent or buy for years. By selling before the auction, you can walk away with cash in your pocket and your credit intact. We handle all the communication with your lender and can often negotiate to satisfy the loan.\n\nDon't wait until it's too late. Contact us today and let's find a solution.",
   sellerType: "pre-foreclosure",
@@ -22,7 +22,7 @@ const content: SellerLandingProps = {
 export const Route = createFileRoute("/sell/pre-foreclosure")({
   head: () => ({
     meta: [
-      { title: "Facing Foreclosure? Get Help Fast — DealFlow AI" },
+      { title: "Facing Foreclosure? Get Help Fast — DealForge Properties" },
       {
         name: "description",
         content:

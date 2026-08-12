@@ -60,10 +60,10 @@ export function SellerLandingPage(props: SellerLandingProps) {
         </div>
       </section>
 
-      {/* Why DealFlow AI */}
+      {/* Why DealForge Properties */}
       <section className="border-t border-navy-700 px-4 py-16 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-4xl">
-          <h2 className="text-2xl font-bold text-white sm:text-3xl">How DealFlow AI Helps</h2>
+          <h2 className="text-2xl font-bold text-white sm:text-3xl">How DealForge Properties Helps</h2>
           <div className="mt-6 space-y-4 text-gray-300 leading-relaxed">
             {whyDealFlow.split("\n\n").map((paragraph, i) => (
               <p key={i}>{paragraph}</p>

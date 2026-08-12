@@ -59,17 +59,8 @@ const submitLead = createServerFn({ method: "POST" })
             ${lead.id}
           )
         `;
-
-        // Auto-SMS: send confirmation if phone provided
-        if (lead.phone) {
-          const { sendSms } = await import("~/lib/sms");
-          const address = `${lead.property_address}, ${lead.property_city}, ${lead.property_state}`;
-          await sendSms(
-            lead.phone,
-            `Hi ${lead.full_name}, thanks for reaching out to DealFlow AI! We received your property details for ${address} and will send you a cash offer within 24 hours. Reply STOP to opt out.`,
-            lead.id,
-          );
-        }
+        // NOTE: no auto-SMS — the SMS channel was discontinued by the owner on
+        // 2026-08-12 (Twilio dropped). Follow-up is by phone/email only.
       }
 
       return { success: true as const, message: "Lead submitted successfully" };
@@ -90,7 +81,7 @@ const submitLead = createServerFn({ method: "POST" })
 export const Route = createFileRoute("/get-offer")({
   head: () => ({
     meta: [
-      { title: "Get Your Cash Offer — DealFlow AI" },
+      { title: "Get Your Cash Offer — DealForge Properties" },
       {
         name: "description",
         content:
@@ -212,6 +203,9 @@ function OfferForm() {
             Fill out the form below and receive a fair cash offer within 24 hours.
             No repairs. No agents. No pressure.
           </p>
+          <div className="mx-auto mt-5 max-w-xl rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
+            We respond by phone or email — SMS messaging is not available at this time.
+          </div>
         </div>
 
         {/* Progress */}

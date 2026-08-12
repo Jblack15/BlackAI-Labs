@@ -1,9 +1,24 @@
 // Seed script — run with: bun run src/db/seed.ts
 import { neon } from "@neondatabase/serverless";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SAFETY GATE: this script inserts MOCK leads + MOCK buyers. It must NEVER run
+// against a production/live database by accident. It is blocked unless BOTH
+// ALLOW_SEED=true is set AND NODE_ENV is not 'production'. Do not remove this
+// gate; if you need seed data for a dev environment, set the env vars
+// explicitly (ALLOW_SEED=true NODE_ENV=development bun run src/db/seed.ts).
+// ─────────────────────────────────────────────────────────────────────────────
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
   console.error("DATABASE_URL is not set");
+  process.exit(1);
+}
+
+if (process.env.ALLOW_SEED !== "true" || process.env.NODE_ENV === "production") {
+  console.error(
+    "Seed BLOCKED — this script inserts mock leads/buyers and must not run against production.\n" +
+      "To run it deliberately in a dev environment: ALLOW_SEED=true NODE_ENV=development bun run src/db/seed.ts",
+  );
   process.exit(1);
 }
 

@@ -52,8 +52,9 @@ type ViewMode = "board" | "list";
 
 // --- Pipeline config (fallbacks only) ---
 // Stages always come from the DB via fetchPipelineStages; this list is only used
-// as a resilience fallback when the database is unreachable (same pattern as
-// MOCK_LEADS below). It mirrors the seed in migration 008 / src/db/seed.ts.
+// as a resilience fallback when the database is unreachable. It mirrors the
+// seed in migration 008 / src/db/seed.ts. It is the canonical pipeline
+// vocabulary — NOT fabricated data — so showing empty columns is honest.
 const MOCK_STAGES: PipelineStageInfo[] = [
   { id: "1", name: "new_lead", display_order: 1, description: "Lead captured from any source, awaiting enrichment.", color: "slate", is_active: true },
   { id: "2", name: "property_enrichment", display_order: 2, description: "Owner, property and lien data being enriched/skip-traced.", color: "blue", is_active: true },
@@ -145,230 +146,6 @@ const MAIL_CAMPAIGN_LABELS: Record<string, string> = {
 };
 const MAIL_COST_PER_PIECE = 0.6;
 
-// --- Mock Data ---
-const MOCK_LEADS: Lead[] = [
-  {
-    id: "1",
-    full_name: "James Rodriguez",
-    email: "james.r@email.com",
-    phone: "(512) 555-0101",
-    property_address: "1423 Elm Street",
-    property_city: "Austin",
-    property_state: "TX",
-    property_zip: "78701",
-    property_type: "Single Family",
-    property_condition: "Fair",
-    estimated_repairs: "25,000 - 40,000",
-    reason_for_selling: "Inherited property, out of state owner",
-    desired_timeline: "ASAP",
-    mortgage_status: "Paid off",
-    notes: "Inherited from aunt. Tenant occupied but lease ending soon.",
-    lead_source: "probate",
-    status: "new",
-    pipeline_stage: "new_lead",
-    time_in_stage: "3d",
-    created_at: "2026-07-30T09:15:00Z",
-  },
-  {
-    id: "2",
-    full_name: "Maria Gonzalez",
-    email: "maria.g@email.com",
-    phone: "(210) 555-0202",
-    property_address: "890 Oak Drive",
-    property_city: "San Antonio",
-    property_state: "TX",
-    property_zip: "78209",
-    property_type: "Single Family",
-    property_condition: "Poor",
-    estimated_repairs: "50,000 - 75,000",
-    reason_for_selling: "Behind on taxes, facing lien",
-    desired_timeline: "Within 30 days",
-    mortgage_status: "Delinquent",
-    notes: "Tax lien of $12,400. Needs roof and foundation work.",
-    lead_source: "tax-delinquent",
-    status: "new",
-    pipeline_stage: "new_lead",
-    time_in_stage: "4d",
-    created_at: "2026-07-29T14:30:00Z",
-  },
-  {
-    id: "3",
-    full_name: "David Chen",
-    email: "david.c@email.com",
-    phone: "(214) 555-0303",
-    property_address: "455 Pine Lane",
-    property_city: "Dallas",
-    property_state: "TX",
-    property_zip: "75201",
-    property_type: "Duplex",
-    property_condition: "Good",
-    estimated_repairs: "10,000 - 15,000",
-    reason_for_selling: "Tired landlord, tenant issues",
-    desired_timeline: "1-2 months",
-    mortgage_status: "Current",
-    notes: "Both units currently vacant after eviction. Wants out of landlording.",
-    lead_source: "tired-landlord",
-    status: "contacted",
-    pipeline_stage: "seller_contacted",
-    time_in_stage: "1d",
-    created_at: "2026-07-28T11:00:00Z",
-  },
-  {
-    id: "4",
-    full_name: "Patricia Williams",
-    email: "pat.w@email.com",
-    phone: "(713) 555-0404",
-    property_address: "2200 Maple Avenue",
-    property_city: "Houston",
-    property_state: "TX",
-    property_zip: "77002",
-    property_type: "Single Family",
-    property_condition: "Fair",
-    estimated_repairs: "20,000 - 30,000",
-    reason_for_selling: "Pre-foreclosure, need to sell fast",
-    desired_timeline: "ASAP",
-    mortgage_status: "Behind 3 payments",
-    notes: "Bank has started pre-foreclosure process. Owe $180k, ARV ~$290k.",
-    lead_source: "pre-foreclosure",
-    status: "contacted",
-    pipeline_stage: "seller_contacted",
-    time_in_stage: "2d",
-    created_at: "2026-07-27T10:45:00Z",
-  },
-  {
-    id: "5",
-    full_name: "Robert Kim",
-    email: "robert.k@email.com",
-    phone: "(512) 555-0505",
-    property_address: "77 Canyon Ridge Rd",
-    property_city: "Round Rock",
-    property_state: "TX",
-    property_zip: "78664",
-    property_type: "Single Family",
-    property_condition: "Average",
-    estimated_repairs: "15,000 - 25,000",
-    reason_for_selling: "Relocating for work",
-    desired_timeline: "Within 60 days",
-    mortgage_status: "Current",
-    notes: "Motivated. Relocating to Seattle. Needs to close before moving.",
-    lead_source: "high-equity",
-    status: "contacted",
-    pipeline_stage: "seller_contacted",
-    time_in_stage: "2d",
-    created_at: "2026-07-26T16:00:00Z",
-  },
-  {
-    id: "6",
-    full_name: "Linda Thompson",
-    email: "linda.t@email.com",
-    phone: "(817) 555-0606",
-    property_address: "333 Birch Street",
-    property_city: "Fort Worth",
-    property_state: "TX",
-    property_zip: "76102",
-    property_type: "Single Family",
-    property_condition: "Poor",
-    estimated_repairs: "40,000 - 60,000",
-    reason_for_selling: "Code violations, cannot afford repairs",
-    desired_timeline: "ASAP",
-    mortgage_status: "Paid off",
-    notes: "City issued 5 code violations. Needs major work. Owner on fixed income.",
-    lead_source: "code-violations",
-    status: "offer",
-    pipeline_stage: "offer_sent",
-    time_in_stage: "12h",
-    created_at: "2026-07-25T08:30:00Z",
-  },
-  {
-    id: "7",
-    full_name: "Michael Davis",
-    email: "mike.d@email.com",
-    phone: "(469) 555-0707",
-    property_address: "612 Cedar Court",
-    property_city: "Plano",
-    property_state: "TX",
-    property_zip: "75023",
-    property_type: "Single Family",
-    property_condition: "Good",
-    estimated_repairs: "5,000 - 10,000",
-    reason_for_selling: "Divorce, need to liquidate",
-    desired_timeline: "30 days",
-    mortgage_status: "Current",
-    notes: "Both parties want quick sale. ARV $420k, offered $340k.",
-    lead_source: "divorce",
-    status: "offer",
-    pipeline_stage: "negotiation",
-    time_in_stage: "6h",
-    created_at: "2026-07-22T13:15:00Z",
-  },
-  {
-    id: "8",
-    full_name: "Sarah Johnson",
-    email: "sarah.j@email.com",
-    phone: "(972) 555-0808",
-    property_address: "1890 Walnut Way",
-    property_city: "Arlington",
-    property_state: "TX",
-    property_zip: "76010",
-    property_type: "Single Family",
-    property_condition: "Average",
-    estimated_repairs: "12,000 - 18,000",
-    reason_for_selling: "Vacant property, tired of paying taxes",
-    desired_timeline: "ASAP",
-    mortgage_status: "Paid off",
-    notes: "Contract signed 7/21. Assignment fee $18,500. Buyer: CashFlow REI LLC.",
-    lead_source: "vacant",
-    status: "contract",
-    pipeline_stage: "contract_signed",
-    time_in_stage: "2d",
-    created_at: "2026-07-15T09:00:00Z",
-  },
-  {
-    id: "9",
-    full_name: "Thomas Brown",
-    email: "tom.b@email.com",
-    phone: "(512) 555-0909",
-    property_address: "445 Pecan Drive",
-    property_city: "Georgetown",
-    property_state: "TX",
-    property_zip: "78626",
-    property_type: "Single Family",
-    property_condition: "Fair",
-    estimated_repairs: "20,000 - 30,000",
-    reason_for_selling: "Absentee owner, tired of managing remotely",
-    desired_timeline: "Closed",
-    mortgage_status: "Paid off",
-    notes: "Closed 7/14. Assignment fee $22,000. ARV $350k, sold at $275k.",
-    lead_source: "absentee",
-    status: "closed",
-    pipeline_stage: "closed_won",
-    time_in_stage: "4w",
-    created_at: "2026-07-01T10:30:00Z",
-  },
-  {
-    id: "10",
-    full_name: "Karen Miller",
-    email: "karen.m@email.com",
-    phone: "(281) 555-1010",
-    property_address: "900 Spruce Hollow",
-    property_city: "Katy",
-    property_state: "TX",
-    property_zip: "77449",
-    property_type: "Townhouse",
-    property_condition: "Good",
-    estimated_repairs: "3,000 - 5,000",
-    reason_for_selling: "Expired listing, wants cash offer",
-    desired_timeline: "Not urgent",
-    mortgage_status: "Current",
-    notes: "DNC — decided to stay. Listed with agent again. Not interested in cash offers.",
-    lead_source: "expired-listing",
-    status: "dead",
-    pipeline_stage: "closed_lost",
-    time_in_stage: "6w",
-    created_at: "2026-06-28T16:45:00Z",
-  },
-];
-
 // --- Server Functions ---
 const fetchLeads = createServerFn({ method: "GET" }).handler(async () => {
   try {
@@ -392,16 +169,19 @@ const fetchLeads = createServerFn({ method: "GET" }).handler(async () => {
       ) pe ON true
       ORDER BY l.created_at DESC
     `) as Array<Lead & { stage_entered_at: string }>;
-    return rows.map((r) => ({
-      ...r,
-      created_at: String(r.created_at),
-      pipeline_stage: r.pipeline_stage || "new_lead",
-      time_in_stage: humanizeDuration(Date.now() - new Date(r.stage_entered_at).getTime()),
-      score: leadScore(r),
-    }));
+    return {
+      leads: rows.map((r) => ({
+        ...r,
+        created_at: String(r.created_at),
+        pipeline_stage: r.pipeline_stage || "new_lead",
+        time_in_stage: humanizeDuration(Date.now() - new Date(r.stage_entered_at).getTime()),
+        score: leadScore(r),
+      })),
+      dbUnavailable: false,
+    };
   } catch {
-    // Return mock data when DB query fails
-    return MOCK_LEADS.map((r) => ({ ...r, score: leadScore(r) }));
+    // DB unreachable: show an honest empty state (no fabricated leads).
+    return { leads: [], dbUnavailable: true };
   }
 });
 
@@ -432,7 +212,7 @@ const updateLeadStatus = createServerFn({ method: "POST" })
 
         switch (data.status) {
           case "contacted":
-            smsMessage = `Hi ${lead.full_name}, this is DealFlow AI. We'd like to discuss your property at ${address}. When's a good time to talk?`;
+            smsMessage = `Hi ${lead.full_name}, this is DealForge Properties. We'd like to discuss your property at ${address}. When's a good time to talk?`;
             break;
           case "offer_sent":
             smsMessage = `Great news ${lead.full_name}! Your appointment is confirmed. We'll see you soon to discuss your cash offer for ${address}.`;
@@ -742,12 +522,12 @@ function LeadDetailModal({
   // Pre-populate SMS message based on lead status
   const defaultMessages: Record<string, string> = {
     new: `Hi ${lead.full_name}, thanks for your interest in selling your property at ${lead.property_address}. We'd love to learn more. When's a good time to chat?`,
-    contacted: `Hi ${lead.full_name}, following up from DealFlow AI about your property at ${lead.property_address}. Let us know if you have any questions!`,
+    contacted: `Hi ${lead.full_name}, following up from DealForge Properties about your property at ${lead.property_address}. Let us know if you have any questions!`,
     qualified: `Hi ${lead.full_name}, great news — your property at ${lead.property_address} qualifies for a cash offer. Let's discuss the next steps!`,
     appointment: `Hi ${lead.full_name}, just a reminder about your upcoming appointment to discuss your cash offer for ${lead.property_address}. Looking forward to it!`,
     offer: `Hi ${lead.full_name}, following up on the cash offer we prepared for your property at ${lead.property_address}. Have you had a chance to review it?`,
     contract: `Hi ${lead.full_name}, your contract for ${lead.property_address} is moving forward. We'll keep you updated on the closing process!`,
-    closed: `Hi ${lead.full_name}, congratulations on closing the sale of ${lead.property_address}! Thank you for choosing DealFlow AI.`,
+    closed: `Hi ${lead.full_name}, congratulations on closing the sale of ${lead.property_address}! Thank you for choosing DealForge Properties.`,
     dead: "",
   };
 
@@ -921,6 +701,11 @@ function LeadDetailModal({
           {/* Send SMS */}
           <div className="rounded-lg border border-navy-700 bg-navy-900/50 p-4">
             <h3 className="mb-3 text-sm font-semibold text-white">Send SMS</h3>
+            <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+              SMS — NOT CONNECTED. Channel discontinued 2026-08-12 (owner
+              decision; outreach is voice via BatchDialer + direct mail/email via
+              PropStream). Sends are disabled and attempts are logged as failed.
+            </div>
             {!lead.phone ? (
               <p className="text-sm text-gray-500">No phone number on file for this lead.</p>
             ) : (
@@ -1251,17 +1036,18 @@ function ListView({
 
 // --- Page Component ---
 function CrmPage() {
-  const [leads, setLeads] = useState<Lead[]>(MOCK_LEADS);
+  const [leads, setLeads] = useState<Lead[]>([]);
   const [stages, setStages] = useState<PipelineStageInfo[]>(MOCK_STAGES);
   const [viewMode, setViewMode] = useState<ViewMode>("board");
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [loading, setLoading] = useState(true);
+  const [dbUnavailable, setDbUnavailable] = useState(false);
   const [smsLogs, setSmsLogs] = useState<SmsLogEntry[]>([]);
   const [smsSending, setSmsSending] = useState(false);
   const [smsResult, setSmsResult] = useState<{ success: boolean; error?: string } | null>(null);
   const [automationBusy, setAutomationBusy] = useState(false);
   const [pipelineHistory, setPipelineHistory] = useState<PipelineHistoryEntry[]>([]);
-  const runSkipTrace = async (ids?: string[]) => { setAutomationBusy(true); try { const result = await skipTrace({ data: { ids } }); if (!result.success) alert(result.error); else alert(`Skip trace complete: ${result.updated} lead(s) enriched.`); if (result.success && ids?.[0]) { const refreshed = await fetchLeads(); setLeads(refreshed); setSelectedLead(refreshed.find((l) => l.id === ids[0]) || null); } } catch { alert("Skip trace failed"); } finally { setAutomationBusy(false); } };
+  const runSkipTrace = async (ids?: string[]) => { setAutomationBusy(true); try { const result = await skipTrace({ data: { ids } }); if (!result.success) alert(result.error); else alert(`Skip trace complete: ${result.updated} lead(s) enriched.`); if (result.success && ids?.[0]) { const refreshed = await fetchLeads(); setLeads(refreshed.leads); setDbUnavailable(refreshed.dbUnavailable); setSelectedLead(refreshed.leads.find((l) => l.id === ids[0]) || null); } } catch { alert("Skip trace failed"); } finally { setAutomationBusy(false); } };
   const runOutreach = async (id: string) => { setAutomationBusy(true); try { const result = await startOutreach({ data: { leadId: id } }); if (!result.success) alert(result.error); else alert("SMS outreach started."); } catch { alert("Outreach failed"); } finally { setAutomationBusy(false); } };
   const runEmailOutreach = async (id: string) => { setAutomationBusy(true); try { const result = await startEmailOutreach({ data: { leadId: id } }); if (!result.success) alert(result.error); else alert(`Email outreach started — Email 1 sent, ${result.scheduled || 4} follow-ups scheduled.`); } catch { alert("Email outreach failed"); } finally { setAutomationBusy(false); } };
   const runSendMail = async (id: string, campaign?: string) => { setAutomationBusy(true); try { const result = await sendMailToLead({ data: { leadId: id, campaign } }); if (!result.success) alert(result.error || "Direct mail failed"); else alert(`Postcard submitted to Click2Mail — ${result.sent} piece(s) queued.`); } catch { alert("Direct mail failed"); } finally { setAutomationBusy(false); } };
@@ -1276,15 +1062,18 @@ function CrmPage() {
       .catch(() => {});
   }, []);
 
-  // Load leads from server (falls back to mock data)
+  // Load leads from the server (honest empty state on DB failure — no mock data)
   useEffect(() => {
     let cancelled = false;
     fetchLeads()
-      .then((data: Lead[]) => {
-        if (!cancelled && data && data.length > 0) setLeads(data);
+      .then((data) => {
+        if (!cancelled && data) {
+          setLeads(data.leads);
+          setDbUnavailable(data.dbUnavailable);
+        }
       })
       .catch(() => {
-        // Already have mock data as default
+        if (!cancelled) setDbUnavailable(true);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -1328,9 +1117,10 @@ function CrmPage() {
     }
     // Refresh from the server to stay consistent
     const refreshed = await fetchLeads().catch(() => null);
-    if (refreshed && refreshed.length > 0) {
-      setLeads(refreshed);
-      setSelectedLead((prev) => (prev ? refreshed.find((l) => l.id === prev.id) ?? prev : prev));
+    if (refreshed) {
+      setLeads(refreshed.leads);
+      setDbUnavailable(refreshed.dbUnavailable);
+      setSelectedLead((prev) => (prev ? refreshed.leads.find((l) => l.id === prev.id) ?? prev : prev));
     }
     if (selectedLead?.id === id) {
       const rows = await fetchPipelineHistory({ data: { leadId: id } }).catch(() => []);
@@ -1388,6 +1178,15 @@ function CrmPage() {
                 )}
               </p>
             </div>
+
+            {/* Database unreachable — never show fabricated data */}
+            {dbUnavailable && (
+              <div className="w-full rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
+                ⚠️ Data unavailable — NOT CONNECTED (live database unreachable). No
+                leads are shown rather than displaying placeholder information.
+                The CRM will populate once the database connection is restored.
+              </div>
+            )}
 
             {/* Automation actions */}
             <div className="flex flex-wrap gap-2">
@@ -1543,10 +1342,10 @@ export const Route = createFileRoute("/crm")({
   component: CrmPage,
   head: () => ({
     meta: [
-      { title: "CRM Pipeline — DealFlow AI" },
+      { title: "CRM Pipeline — DealForge Properties" },
       {
         name: "description",
-        content: "Manage your real estate wholesaling pipeline with DealFlow AI's CRM.",
+        content: "Manage your real estate wholesaling pipeline with DealForge Properties' CRM.",
       },
     ],
   }),

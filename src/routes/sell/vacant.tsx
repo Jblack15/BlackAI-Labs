@@ -13,7 +13,7 @@ const content: SellerLandingProps = {
     "Need to sell but the house needs too much work to list",
   ],
   description:
-    "A vacant house is a liability — it drains money in taxes, insurance, and maintenance while risking damage from neglect or vandalism. DealFlow AI turns that liability into cash. We buy vacant homes in any condition, anywhere.",
+    "A vacant house is a liability — it drains money in taxes, insurance, and maintenance while risking damage from neglect or vandalism. DealForge Properties turns that liability into cash. We buy vacant homes in any condition, anywhere.",
   whyDealFlow:
     "Every month your property sits vacant, it costs you money. Property taxes, insurance, utilities, and maintenance add up fast — not to mention the risk of break-ins, squatters, or weather damage. You shouldn't have to pour money into a house you don't even live in.\n\nWe make it simple. Tell us about your vacant property and we'll make a fair cash offer within 24 hours. We buy as-is — you don't need to clean it out, make repairs, or even visit the property. We handle everything.\n\nStop the bleeding. Get cash for your vacant home and put that money to better use.",
   sellerType: "vacant",
@@ -22,7 +22,7 @@ const content: SellerLandingProps = {
 export const Route = createFileRoute("/sell/vacant")({
   head: () => ({
     meta: [
-      { title: "Vacant Home? Get Cash Fast — DealFlow AI" },
+      { title: "Vacant Home? Get Cash Fast — DealForge Properties" },
       {
         name: "description",
         content:

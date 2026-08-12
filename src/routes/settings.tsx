@@ -106,27 +106,19 @@ function SettingsPage() {
         <p className="mt-1 text-gray-400">Manage integrations and monitor system health.</p>
       </div>
 
-      {/* SMS Configuration Status */}
+      {/* SMS Configuration Status — channel discontinued */}
       <div className="mb-8 rounded-xl border border-navy-700 bg-navy-800/60 p-6">
-        <h2 className="mb-4 text-lg font-semibold text-white">SMS Integration (Twilio)</h2>
+        <h2 className="mb-4 text-lg font-semibold text-white">SMS — NOT CONNECTED</h2>
         <div className="flex items-center gap-3">
-          <div
-            className={`flex h-3 w-3 rounded-full ${
-              stats.twilioConfigured ? "bg-green-500 animate-pulse" : "bg-red-500"
-            }`}
-          />
-          <span
-            className={`text-lg font-semibold ${
-              stats.twilioConfigured ? "text-green-400" : "text-red-400"
-            }`}
-          >
-            {stats.twilioConfigured ? "Connected" : "Not Configured"}
-          </span>
+          <div className="flex h-3 w-3 rounded-full bg-red-500" />
+          <span className="text-lg font-semibold text-red-400">Channel discontinued</span>
         </div>
         <p className="mt-2 text-sm text-gray-500">
-          {stats.twilioConfigured
-            ? "Twilio API keys are set. SMS notifications are active."
-            : "Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER environment variables to enable SMS."}
+          SMS messaging was discontinued 2026-08-12 (owner decision — Twilio dropped;
+          outreach is voice via BatchDialer and direct mail/email via PropStream
+          Campaigns, which has no SMS product). SMS sends are disabled platform-wide
+          and cannot fire. Revisit only with a TCPA-compliant provider and an explicit
+          owner decision.
         </p>
       </div>
 
@@ -212,10 +204,10 @@ export const Route = createFileRoute("/settings")({
   component: SettingsPage,
   head: () => ({
     meta: [
-      { title: "Settings — DealFlow AI" },
+      { title: "Settings — DealForge Properties" },
       {
         name: "description",
-        content: "Manage your DealFlow AI integrations, including Twilio SMS configuration.",
+        content: "Manage your DealForge Properties integrations and monitor system health.",
       },
     ],
   }),

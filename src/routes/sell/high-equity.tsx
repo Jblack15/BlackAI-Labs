@@ -13,7 +13,7 @@ const content: SellerLandingProps = {
     "Need liquidity but don't want a HELOC or refinance",
   ],
   description:
-    "You've built substantial equity in your home — now put it to work. Instead of borrowing against your equity with a loan or spending months on the open market, sell directly to DealFlow AI for a fair cash offer. Close fast, skip the repairs, and keep more of your equity.",
+    "You've built substantial equity in your home — now put it to work. Instead of borrowing against your equity with a loan or spending months on the open market, sell directly to DealForge Properties for a fair cash offer. Close fast, skip the repairs, and keep more of your equity.",
   whyDealFlow:
     "High equity is a great position to be in, but accessing that equity traditionally means either borrowing (with interest) or listing with an agent (with commissions and months of uncertainty). We offer a third path: a direct cash sale that puts your equity in your pocket quickly.\n\nWe pay fair market-based offers that respect the equity you've built. Since we buy as-is, you don't spend a dime on repairs, staging, or agent commissions — which means more of that equity stays with you. Close in as little as 7 days.\n\nReady to unlock your equity? Get a no-obligation cash offer today.",
   sellerType: "high-equity",
@@ -22,7 +22,7 @@ const content: SellerLandingProps = {
 export const Route = createFileRoute("/sell/high-equity")({
   head: () => ({
     meta: [
-      { title: "High Equity? Unlock Your Cash — DealFlow AI" },
+      { title: "High Equity? Unlock Your Cash — DealForge Properties" },
       {
         name: "description",
         content:

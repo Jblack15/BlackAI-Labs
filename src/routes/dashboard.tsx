@@ -153,7 +153,7 @@ const fetchNotifications = createServerFn({ method: "GET" }).handler(async (): P
   try {
     const { sql } = await import("~/db");
     const rows = await sql`
-      SELECT id, type, title, message AS body, read AS is_read, created_at
+      SELECT id, type, title, body, is_read, created_at
       FROM notifications
       ORDER BY created_at DESC
       LIMIT 20
@@ -681,7 +681,7 @@ export const Route = createFileRoute("/dashboard")({
   component: DashboardPage,
   head: () => ({
     meta: [
-      { title: "Dashboard — DealFlow AI" },
+      { title: "Dashboard — DealForge Properties" },
       {
         name: "description",
         content: "KPI dashboards and business intelligence for your real estate wholesaling operation.",
