@@ -18,6 +18,7 @@ import { sql } from "~/db";
 import { sendSms } from "~/lib/sms";
 import { SMS_SEQUENCE } from "~/lib/outreach";
 import { EMAIL_SEQUENCE, sendEmail } from "~/lib/email-outreach";
+import { assertOutreachAllowed } from "~/lib/skip-trace";
 
 export interface DueOutreachRow {
   id: string;
@@ -27,6 +28,7 @@ export interface DueOutreachRow {
   full_name: string;
   phone: string | null;
   email: string | null;
+  dnc_flag: string | null;
   property_address: string | null;
   property_city: string | null;
   property_state: string | null;
@@ -55,6 +57,9 @@ function buildAddress(row: DueOutreachRow): string {
 async function sendSmsStep(row: DueOutreachRow): Promise<StepOutcome> {
   const template = SMS_SEQUENCE[row.step - 1];
   if (!template) return { ok: false, error: `No SMS template for step ${row.step}` };
+  // Hard block (PH1-B1): no contact info or suppressed → refuse to send.
+  const smsCheck = assertOutreachAllowed({ phone: row.phone, email: row.email, dnc_flag: row.dnc_flag });
+  if (!smsCheck.allowed) return { ok: false, error: smsCheck.reason };
   if (!row.phone) return { ok: false, error: "Lead has no phone number" };
   const result = await sendSms(row.phone, template(row.full_name, buildAddress(row)), row.lead_id);
   return result.success ? { ok: true } : { ok: false, error: result.error || "SMS send failed" };
@@ -63,6 +68,9 @@ async function sendSmsStep(row: DueOutreachRow): Promise<StepOutcome> {
 async function sendEmailStep(row: DueOutreachRow): Promise<StepOutcome> {
   const template = EMAIL_SEQUENCE[row.step - 1];
   if (!template) return { ok: false, error: `No email template for step ${row.step}` };
+  // Hard block (PH1-B1): no contact info or suppressed → refuse to send.
+  const emailCheck = assertOutreachAllowed({ phone: row.phone, email: row.email, dnc_flag: row.dnc_flag });
+  if (!emailCheck.allowed) return { ok: false, error: emailCheck.reason };
   if (!row.email) return { ok: false, error: "Lead has no email address" };
   const result = await sendEmail({
     to: row.email,
@@ -90,7 +98,7 @@ export async function dispatchDueOutreach(limit = 100): Promise<DispatchResult> 
 
   const rows = (await sql`
     SELECT s.id, s.lead_id, s.channel, s.step,
-           l.full_name, l.phone, l.email,
+           l.full_name, l.phone, l.email, l.dnc_flag,
            l.property_address, l.property_city, l.property_state
     FROM outreach_sequences s
     JOIN leads l ON l.id = s.lead_id
