@@ -2,9 +2,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { useEffect, useState } from "react";
 import type { FunnelMetrics, CampaignCosts, AttentionItem, CommandStatus } from "~/lib/command-center";
+import type { CampaignEconomicsSummary, HealthStatus } from "~/lib/campaign-economics";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Command Center (PH1-B10a) — "what needs attention right now", one screen.
+// Command Center (PH1-B10a + B10b) — "what needs attention right now", one screen.
 //   • GREEN / YELLOW / RED banner — computed from real state, never hardcoded
 //     (rule documented in src/lib/command-center.ts)
 //   • Attention list — every item derived from real tables, with action links
@@ -12,6 +13,10 @@ import type { FunnelMetrics, CampaignCosts, AttentionItem, CommandStatus } from 
 //     denominator is 0 (no invented rates)
 //   • Campaign cost panel — planned (owner-committed, not spent) vs actual
 //     (real money moved); $0 actual shows an honest "no real spend recorded"
+//   • Campaign economics panel (B10b) — cost per lead / qualified opp /
+//     contract, revenue, net profit and the health badge + PAUSE/Monitor/Scale
+//     recommendation, computed from real kind='actual' spend (rules documented
+//     in src/lib/campaign-economics.ts). All "—" until real money moves.
 // ─────────────────────────────────────────────────────────────────────────────
 
 type CommandCenterData = {
@@ -20,6 +25,7 @@ type CommandCenterData = {
   costs: CampaignCosts;
   items: AttentionItem[];
   status: CommandStatus;
+  economics: CampaignEconomicsSummary;
   loadedAt: string;
 };
 
@@ -27,14 +33,17 @@ type CommandCenterData = {
 // never includes the server-only db module (team convention — see dashboard.tsx).
 const fetchCommandCenter = createServerFn({ method: "GET" }).handler(async (): Promise<CommandCenterData> => {
   const { funnelMetrics, campaignCosts, attentionItems, computeCommandStatus } = await import("~/lib/command-center");
+  const { campaignEconomics, toFunnelCounts } = await import("~/lib/campaign-economics");
   const [funnel, costs, items] = await Promise.all([funnelMetrics(), campaignCosts(), attentionItems()]);
   const status = computeCommandStatus(items, funnel, costs);
+  const economics = await campaignEconomics(toFunnelCounts(funnel));
   return {
     dbOk: funnel.dbOk,
     funnel,
     costs,
     items,
     status,
+    economics,
     loadedAt: new Date().toISOString(),
   };
 });
@@ -79,6 +88,20 @@ const SEVERITY_STYLES: Record<AttentionItem["severity"], string> = {
   critical: "border-red-500/40 bg-red-950/40",
   warn: "border-gold-500/40 bg-gold-950/30",
   info: "border-navy-600 bg-navy-800",
+};
+
+const HEALTH_STYLES: Record<HealthStatus, { badge: string; text: string }> = {
+  GREEN: { badge: "bg-emerald-500 text-navy-900", text: "text-emerald-300" },
+  YELLOW: { badge: "bg-gold-500 text-navy-900", text: "text-gold-300" },
+  RED: { badge: "bg-red-500 text-white", text: "text-red-300" },
+  NO_SPEND: { badge: "bg-navy-600 text-gray-300", text: "text-gray-400" },
+};
+
+const HEALTH_LABEL: Record<HealthStatus, string> = {
+  GREEN: "GREEN — scale",
+  YELLOW: "YELLOW — monitor",
+  RED: "RED — pause",
+  NO_SPEND: "NO SPEND RECORDED",
 };
 
 function CommandCenterPage() {
@@ -129,7 +152,7 @@ function CommandCenterPage() {
             {new Date(data.loadedAt).toLocaleString()}.
           </p>
         </div>
-        <span className="text-xs text-gray-500">B10a · spending-control logic ships next (B10b)</span>
+        <span className="text-xs text-gray-500">B10b · spending control active</span>
       </div>
 
       {/* ── Status banner ─────────────────────────────────────────────────── */}
@@ -235,12 +258,118 @@ function CommandCenterPage() {
             </p>
           ) : (
             <p className="mt-2 text-xs text-gray-500">
-              Actual spend is real money that has moved. Cost-per-lead / cost-per-contract and pause
-              recommendations land with the spending-control build (B10b).
+              Actual spend is real money that has moved. Economics (cost per lead / contract, net profit) and the
+              pause recommendation are computed below from kind='actual' entries.
             </p>
           )}
         </section>
       </div>
+
+      {/* ── Campaign economics & spending control (B10b) ──────────────────── */}
+      <section className="mt-10">
+        <h2 className="mb-3 text-lg font-semibold text-white">Campaign economics &amp; spending control</h2>
+        {!data.economics.revenueTrackable && (
+          <p className="mb-3 text-xs text-gray-500">
+            Revenue attribution lands in B12 (contracts.campaign_id) — until then revenue shows $0.00 (real: no
+            contracts exist) with net profit "—" because per-campaign net profit cannot be computed yet.
+          </p>
+        )}
+        <div className="overflow-x-auto rounded-lg border border-navy-600">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-navy-800 text-xs uppercase tracking-wider text-gray-400">
+              <tr>
+                <th className="px-4 py-3">Campaign</th>
+                <th className="px-4 py-3 text-right">Leads</th>
+                <th className="px-4 py-3 text-right">Cost/lead</th>
+                <th className="px-4 py-3 text-right">Cost/qual.</th>
+                <th className="px-4 py-3 text-right">Cost/contract</th>
+                <th className="px-4 py-3 text-right">Revenue</th>
+                <th className="px-4 py-3 text-right">Net profit</th>
+                <th className="px-4 py-3">Health</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-navy-700 bg-navy-900/60">
+              {data.economics.campaigns.map((c) => {
+                const hs = HEALTH_STYLES[c.health.status];
+                const noSpend = c.actualCents === 0;
+                return (
+                  <tr key={c.id}>
+                    <td className="px-4 py-3 text-gray-200">
+                      <div className="font-medium">{c.name}</div>
+                      <div className="mt-0.5 text-xs text-gray-500">
+                        {c.channel} · {c.status}
+                        {c.spendCapCents !== null ? ` · cap ${fmtDollars(c.spendCapCents)}` : " · no cap set"}
+                        {c.leadCount === null ? " · leads unknown" : ""}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-right text-gray-200">{c.leadCount ?? "—"}</td>
+                    <td className="px-4 py-3 text-right text-gray-200">
+                      {noSpend || c.costPerLeadCents === null ? "—" : fmtDollars(c.costPerLeadCents)}
+                    </td>
+                    <td className="px-4 py-3 text-right text-gray-200">
+                      {noSpend || c.costPerQualifiedOppCents === null ? "—" : fmtDollars(c.costPerQualifiedOppCents)}
+                    </td>
+                    <td className="px-4 py-3 text-right text-gray-200">
+                      {noSpend || c.costPerContractCents === null ? "—" : fmtDollars(c.costPerContractCents)}
+                    </td>
+                    <td className="px-4 py-3 text-right text-gray-200">
+                      {c.revenueCents === null ? "—" : fmtDollars(c.revenueCents)}
+                      {c.revenueNote ? <div className="text-[10px] text-gray-500">not attributable yet (B12)</div> : null}
+                    </td>
+                    <td className="px-4 py-3 text-right text-gray-200">
+                      {c.netProfitCents === null ? "—" : fmtDollars(c.netProfitCents)}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${hs.badge}`}>
+                          {HEALTH_LABEL[c.health.status]}
+                        </span>
+                        {c.health.recommendation ? (
+                          <span className={`text-xs ${hs.text}`}>{c.health.recommendation}</span>
+                        ) : (
+                          <span className={`text-xs ${hs.text}`}>economics unavailable until real spend exists</span>
+                        )}
+                      </div>
+                      {c.health.reasons.length > 0 && c.health.status !== "NO_SPEND" ? (
+                        <ul className="mt-1 list-disc pl-4 text-xs text-gray-400">
+                          {c.health.reasons.map((r, i) => (
+                            <li key={i}>{r}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
+              <tr className="bg-navy-800 font-semibold text-white">
+                <td className="px-4 py-3" colSpan={2}>
+                  Totals
+                </td>
+                <td className="px-4 py-3 text-right text-gray-500" colSpan={3}>
+                  {fmtDollars(data.economics.totals.actualCents)} actual spend
+                </td>
+                <td className="px-4 py-3 text-right text-gray-300">
+                  {data.economics.totals.revenueCents === null ? "—" : fmtDollars(data.economics.totals.revenueCents)}
+                </td>
+                <td className="px-4 py-3 text-right text-gray-300">
+                  {data.economics.totals.netProfitCents === null ? "—" : fmtDollars(data.economics.totals.netProfitCents)}
+                </td>
+                <td className="px-4 py-3 text-xs font-normal text-gray-500">
+                  {data.economics.totals.actualCents === 0
+                    ? "No spend recorded — economics unavailable"
+                    : "Computed from kind='actual' spend only"}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-2 text-xs text-gray-500">
+          Cost per lead / qualified opp / contract and net profit render "—" until real money moves (kind='actual').
+          Health rules: RED → Recommend PAUSE (cost per contract &gt; $15,000, spend over cap, or offers out with zero
+          contracts after $2,000); GREEN → net profit &gt; 0; YELLOW → monitoring. Targets from plan rev 18, tuned in
+          TARGETS in src/lib/campaign-economics.ts.
+        </p>
+      </section>
 
       {/* ── Funnel ───────────────────────────────────────────────────────── */}
       <section className="mt-10">
