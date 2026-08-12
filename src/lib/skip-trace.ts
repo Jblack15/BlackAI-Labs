@@ -310,36 +310,113 @@ export async function getTraceSummary(): Promise<{
 }
 
 // --- Hard block: nothing sends without contact info + compliance clearance --
+export type OutreachChannel = "sms" | "email" | "mail" | "voice" | "manual";
 export type OutreachCheckLead = {
   phone?: string | null;
   email?: string | null;
   dnc_flag?: string | null;
-  /** Suppression flags checked IF PRESENT (full suppression table lands in B2). */
+  /** Suppression flags (full suppression table landed in B2). */
   do_not_mail?: string | null | boolean;
   opted_out?: string | null | boolean;
   invalid_contact?: string | null | boolean;
   wrong_number?: string | null | boolean;
+  /** Mailing address fields (mail channel only). */
+  property_address?: string | null;
+  property_city?: string | null;
+  property_state?: string | null;
+  property_zip?: string | null;
 };
 export type OutreachCheckResult = { allowed: boolean; reason?: string };
 
-const SUPPRESSED_VALUES = new Set(["DNC", "DO_NOT_MAIL", "OPTED_OUT", "INVALID", "WRONG_NUMBER", "true", "1"]);
+// Suppression truthy values. Booleans (new B2 columns) arrive as `true` →
+// String(true).toUpperCase() = "TRUE"; legacy text flags are uppercase already.
+const SUPPRESSED_VALUES = new Set(["DNC", "DO_NOT_MAIL", "OPTED_OUT", "INVALID", "WRONG_NUMBER", "TRUE", "1"]);
+const isSuppressed = (v: string | null | boolean | undefined): boolean =>
+  v != null && v !== "" && SUPPRESSED_VALUES.has(String(v).toUpperCase());
 
 /**
- * Hard block helper. Returns { allowed: false, reason } when the lead has no
- * phone/email, or carries a suppression flag. Every send path (sms, email,
- * outreach dispatcher, direct mail) calls this before transmitting — a lead
- * without contact info can never be contacted by the system.
+ * Hard block helper (extended in PH1-B2 to be channel-aware). Returns
+ * { allowed: false, reason } when the lead cannot be contacted on the given
+ * channel. Every send path (sms, email, outreach dispatcher, direct mail)
+ * calls this before transmitting — a suppressed lead can never be reached.
+ *
+ * Channel matrix (per the compliance spec):
+ *   - no channel (generic / manual): block on missing phone+email or ANY flag
+ *     (preserves B1 behavior exactly for existing callers)
+ *   - sms / voice: need a phone; blocked by dnc_flag, opted_out,
+ *     invalid_contact, wrong_number (do_not_mail does NOT block phone)
+ *   - email: needs an email; blocked by opted_out, invalid_contact,
+ *     wrong_number (dnc_flag and do_not_mail do NOT block email)
+ *   - mail: needs a mailing address; blocked by do_not_mail, opted_out
+ *     (dnc_flag / wrong_number are phone-centric and do NOT block mail)
  */
-export function assertOutreachAllowed(lead: OutreachCheckLead): OutreachCheckResult {
-  const hasContact = !!(lead.phone?.trim() || lead.email?.trim());
-  if (!hasContact) {
-    return {
-      allowed: false,
-      reason: "Blocked: lead has no contact info on file (phone/email missing) — skip trace or record contact info first",
-    };
+export function assertOutreachAllowed(lead: OutreachCheckLead, channel?: OutreachChannel): OutreachCheckResult {
+  // 1. Channel-appropriate contact info.
+  switch (channel) {
+    case "sms":
+    case "voice": {
+      if (!lead.phone?.trim()) {
+        return { allowed: false, reason: "Blocked: lead has no phone number on file (skip trace or record contact info first)" };
+      }
+      break;
+    }
+    case "email": {
+      if (!lead.email?.trim()) {
+        return { allowed: false, reason: "Blocked: lead has no email address on file (skip trace or record contact info first)" };
+      }
+      break;
+    }
+    case "mail": {
+      if (!(lead.property_address?.trim() && lead.property_city?.trim() && lead.property_state?.trim() && lead.property_zip?.trim())) {
+        return { allowed: false, reason: "Blocked: lead has no mailing address on file (property address/city/state/zip missing)" };
+      }
+      break;
+    }
+    default: {
+      const hasContact = !!(lead.phone?.trim() || lead.email?.trim());
+      if (!hasContact) {
+        return {
+          allowed: false,
+          reason: "Blocked: lead has no contact info on file (phone/email missing) — skip trace or record contact info first",
+        };
+      }
+    }
   }
+  // 2. Suppression flags per channel.
+  if (channel === "mail") {
+    if (isSuppressed(lead.do_not_mail) || isSuppressed(lead.opted_out)) {
+      return {
+        allowed: false,
+        reason: "Blocked: contact is suppressed (do-not-mail / opted-out) — mail not permitted",
+      };
+    }
+    return { allowed: true };
+  }
+  if (channel === "sms" || channel === "voice") {
+    const flags = [lead.dnc_flag, lead.opted_out, lead.invalid_contact, lead.wrong_number];
+    const suppressed = flags.some(isSuppressed);
+    if (suppressed) {
+      return {
+        allowed: false,
+        reason: "Blocked: contact is suppressed (DNC / opted-out / invalid / wrong-number) — phone outreach not permitted",
+      };
+    }
+    return { allowed: true };
+  }
+  if (channel === "email") {
+    const flags = [lead.opted_out, lead.invalid_contact];
+    const suppressed = flags.some(isSuppressed);
+    if (suppressed) {
+      return {
+        allowed: false,
+        reason: "Blocked: contact is suppressed (opted-out / invalid) — email not permitted",
+      };
+    }
+    return { allowed: true };
+  }
+  // Generic (no channel): preserve B1 behavior — any flag blocks.
   const flags = [lead.dnc_flag, lead.do_not_mail, lead.opted_out, lead.invalid_contact, lead.wrong_number];
-  const suppressed = flags.some((v) => v != null && v !== "" && SUPPRESSED_VALUES.has(String(v).toUpperCase()));
+  const suppressed = flags.some(isSuppressed);
   if (suppressed) {
     return {
       allowed: false,
@@ -350,13 +427,14 @@ export function assertOutreachAllowed(lead: OutreachCheckLead): OutreachCheckRes
 }
 
 /** DB-backed variant used by send paths: loads the lead and hard-blocks. */
-export async function assertLeadOutreachAllowedById(leadId: string): Promise<OutreachCheckResult> {
+export async function assertLeadOutreachAllowedById(leadId: string, channel?: OutreachChannel): Promise<OutreachCheckResult> {
   const rows = await sql`
-    SELECT phone, email, dnc_flag
+    SELECT phone, email, dnc_flag, do_not_mail, opted_out, invalid_contact, wrong_number,
+           property_address, property_city, property_state, property_zip
     FROM leads WHERE id = ${leadId}
   ` as OutreachCheckLead[];
   if (!rows.length) return { allowed: false, reason: "Lead not found" };
-  return assertOutreachAllowed(rows[0]);
+  return assertOutreachAllowed(rows[0], channel);
 }
 
 // --- Legacy button entry point (kept for routes) ---------------------------

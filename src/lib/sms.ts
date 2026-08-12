@@ -26,16 +26,27 @@ export async function sendSms(
   message: string,
   leadId?: string,
 ): Promise<SmsResult> {
-  // Hard block (PH1-B1): nothing sends to a lead without contact info or with
-  // a suppression flag. Full compliance suppression table lands in B2; the
-  // missing-contact block is this build. Form-submitted leads (seller opted in
+  // Hard block (PH1-B1 + B2): nothing sends to a lead without contact info or
+  // with a suppression flag (dnc_flag / opted_out / invalid_contact /
+  // wrong_number). Every attempt — sent, attempted, or blocked — is written to
+  // outreach_audit_log (the audit trail). Form-submitted leads (seller opted in
   // by submitting) don't pass a leadId yet — the block applies to CRM/drip
   // sends that address a known lead.
   if (leadId) {
     try {
       const { assertLeadOutreachAllowedById } = await import("~/lib/skip-trace");
-      const check = await assertLeadOutreachAllowedById(leadId);
+      const { logOutreachAudit } = await import("~/lib/compliance");
+      const check = await assertLeadOutreachAllowedById(leadId, "sms");
       if (!check.allowed) {
+        await logOutreachAudit({
+          leadId,
+          channel: "sms",
+          direction: "outbound",
+          status: "blocked",
+          reason: check.reason,
+          contactValue: to,
+          contentPreview: message,
+        });
         try {
           await sql`
             INSERT INTO sms_logs (lead_id, to_phone, message, status)
@@ -48,6 +59,20 @@ export async function sendSms(
       }
     } catch {
       // If the compliance check itself fails, do not send — fail closed.
+      try {
+        const { logOutreachAudit } = await import("~/lib/compliance");
+        await logOutreachAudit({
+          leadId,
+          channel: "sms",
+          direction: "outbound",
+          status: "blocked",
+          reason: "Blocked: could not verify contact/compliance clearance for lead",
+          contactValue: to,
+          contentPreview: message,
+        });
+      } catch {
+        // ignore — audit logging must never break the caller
+      }
       return { success: false, error: "Blocked: could not verify contact/compliance clearance for lead" };
     }
   }
