@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { useState, useEffect } from "react";
 
@@ -163,6 +163,152 @@ const fetchNotifications = createServerFn({ method: "GET" }).handler(async (): P
     return [];
   }
 });
+// ── Next 25 to Work (PH1-B7) — real scores from the DB ────────────────────
+interface Next25Row {
+  id: string;
+  full_name: string;
+  property_address: string;
+  property_city: string;
+  property_state: string;
+  property_zip: string;
+  score: number | null;
+  priority_queue: string | null;
+  contactable: boolean;
+  estimated_mao: number | null;
+}
+interface Next25Payload {
+  ok: boolean;
+  next25: Next25Row[];
+  queues: { queue: string; count: number }[];
+}
+const fetchNext25 = createServerFn({ method: "GET" }).handler(async (): Promise<Next25Payload> => {
+  try {
+    const { next25ToWork, queueDistribution } = await import("~/lib/prioritization");
+    const [next25, queues] = await Promise.all([next25ToWork(), queueDistribution()]);
+    return {
+      ok: true,
+      next25: next25.map((l) => ({
+        id: l.id,
+        full_name: l.full_name,
+        property_address: l.property_address,
+        property_city: l.property_city,
+        property_state: l.property_state,
+        property_zip: l.property_zip,
+        score: l.score,
+        priority_queue: l.priority_queue,
+        contactable: l.contactable,
+        estimated_mao: l.score_factors?.estimated_mao ?? null,
+      })),
+      queues,
+    };
+  } catch {
+    return { ok: false, next25: [], queues: [] };
+  }
+});
+// Queue summary chips + the operator's next-25 list (read-only).
+function Next25Panel({ payload }: { payload: Next25Payload }) {
+  const queueChip: Record<string, string> = {
+    HOT: "bg-red-500/20 text-red-300 border-red-500/40",
+    HIGH: "bg-orange-500/20 text-orange-300 border-orange-500/40",
+    MEDIUM: "bg-gold-500/20 text-gold-300 border-gold-500/40",
+    LOW: "bg-slate-500/20 text-slate-300 border-slate-500/30",
+    DEAD: "bg-gray-600/20 text-gray-500 border-gray-600/30",
+  };
+  return (
+    <div className="mb-10 rounded-xl border border-navy-700 bg-navy-800/60 p-6">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-white">Next 25 to Work</h2>
+        <div className="flex flex-wrap gap-1.5">
+          {payload.queues.map((q) => (
+            <span
+              key={q.queue}
+              className={`inline-block rounded-full border px-2 py-0.5 text-[11px] font-medium ${queueChip[q.queue] || "bg-gray-600/20 text-gray-500 border-gray-600/30"}`}
+              title={`Leads queued ${q.queue}`}
+            >
+              {q.queue} {q.count}
+            </span>
+          ))}
+        </div>
+      </div>
+      {!payload.ok ? (
+        <p className="text-sm text-amber-300">
+          ⚠️ Live database unreachable — priority queues are unavailable (NOT CONNECTED).
+        </p>
+      ) : payload.next25.length === 0 ? (
+        <p className="text-sm text-gray-400">
+          No workable leads yet — queues fill in once leads are scored and skip-traced.
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px] text-left text-sm">
+            <thead>
+              <tr className="border-b border-navy-700 text-xs uppercase tracking-wider text-gray-500">
+                <th className="py-2 pr-3">#</th>
+                <th className="py-2 pr-3">Lead</th>
+                <th className="py-2 pr-3">Priority</th>
+                <th className="py-2 pr-3">Score</th>
+                <th className="py-2 pr-3">Est. MAO</th>
+                <th className="py-2 pr-3">ZIP</th>
+                <th className="py-2 pr-3">Contact</th>
+                <th className="py-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {payload.next25.map((l, i) => (
+                <tr key={l.id} className="border-b border-navy-700/50 transition-colors hover:bg-navy-800/80">
+                  <td className="py-2 pr-3 text-gray-500">{i + 1}</td>
+                  <td className="py-2 pr-3">
+                    <p className="font-medium text-white">{l.full_name}</p>
+                    <p className="text-xs text-gray-500">
+                      {l.property_address}, {l.property_city} {l.property_state}
+                    </p>
+                  </td>
+                  <td className="py-2 pr-3">
+                    <span
+                      className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-medium ${queueChip[l.priority_queue || ""] || "bg-gray-600/20 text-gray-500 border-gray-600/30"}`}
+                    >
+                      {l.priority_queue || "UNSCORED"}
+                    </span>
+                  </td>
+                  <td className="py-2 pr-3 text-gray-300">{l.score !== null ? l.score : "—"}</td>
+                  <td className="py-2 pr-3 text-gray-300">
+                    {l.estimated_mao !== null && l.estimated_mao !== undefined
+                      ? `${Math.round(l.estimated_mao).toLocaleString("en-US")}`
+                      : "—"}
+                  </td>
+                  <td className="py-2 pr-3 text-gray-400">{l.property_zip}</td>
+                  <td className="py-2 pr-3">
+                    {l.contactable ? (
+                      <span className="inline-block rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
+                        Contactable
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-gray-600">No contact yet</span>
+                    )}
+                  </td>
+                  <td className="py-2 text-right">
+                    <Link
+                      to="/crm"
+                      search={{ lead: l.id }}
+                      className="text-xs font-medium text-gold-400 transition-colors hover:text-gold-300"
+                    >
+                      Open in CRM →
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="mt-4 text-xs text-gray-500">
+        Ordered by priority rank, then score, contactability, equity and foreclosure urgency — real
+        PropStream-adapted scores from the database (HOT requires a 9+ score with usable contact
+        info, so it fills in as skip tracing lands).
+      </p>
+    </div>
+  );
+}
 
 // ── Color Helpers ──────────────────────────────────────────────────────────
 
@@ -405,6 +551,7 @@ function DashboardPage() {
     responsesReceived: 0,
   });
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [next25, setNext25] = useState<Next25Payload>({ ok: false, next25: [], queues: [] });
 
   useEffect(() => {
     fetchDashboardData()
@@ -420,6 +567,11 @@ function DashboardPage() {
     fetchNotifications()
       .then((d) => {
         if (d) setNotifications(d);
+      })
+      .catch(() => {});
+    fetchNext25()
+      .then((d) => {
+        if (d) setNext25(d);
       })
       .catch(() => {});
   }, []);
@@ -564,6 +716,8 @@ function DashboardPage() {
         })}
       </div>
 
+      {/* ── 1b. Next 25 to Work (PH1-B7) ─────────────────────────────── */}
+      <Next25Panel payload={next25} />
       {/* ── 2. Automation ─────────────────────────────────────────────── */}
       <div className="mb-10 rounded-xl border border-navy-700 bg-navy-800/60 p-6">
         <div className="mb-5 flex items-center justify-between">
