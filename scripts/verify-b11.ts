@@ -176,7 +176,11 @@ ok("offer transition ALLOWED after approval", allowedOffer.success === true && a
 // negotiation is gated by the SAME approved offer request (rev 18: negotiation beyond approved params)
 const negOk = await transitionOutreachStatus(leadC, "negotiation", { reason: "verify", operator: "verify-b11", requireApproval: { kind: "offer", refId: leadC } });
 ok("negotiation allowed with approved offer request (same gate)", negOk.success === true && negOk.to === "negotiation", JSON.stringify(negOk));
-// contract_signed requires an approved CONTRACT request
+// contract_signed requires an approved CONTRACT request. The state map only
+// allows negotiation -> contract_sent -> contract_signed, so drive to
+// contract_sent first (ungated), then attempt the gated contract_signed.
+const toSent = await transitionOutreachStatus(leadC, "contract_sent", { reason: "verify", operator: "verify-b11" });
+ok("drive lead to contract_sent", toSent.success === true && toSent.to === "contract_sent", JSON.stringify(toSent));
 const blockedContract = await transitionOutreachStatus(leadC, "contract_signed", { reason: "verify", operator: "verify-b11", requireApproval: { kind: "contract", refId: leadC } });
 ok("contract_signed BLOCKED without contract approval", blockedContract.success === false && blockedContract.error!.includes("requires approved approval_request"), blockedContract.error ?? "");
 const reqC2 = await requestApproval({ kind: "contract", refType: "lead", refId: leadC, operator: "verify-b11" });
