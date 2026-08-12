@@ -11,6 +11,12 @@ export function Header() {
         </Link>
         <nav className="hidden items-center gap-6 md:flex">
           <Link
+            to="/command-center"
+            className="text-sm font-medium text-gray-300 transition-colors hover:text-white"
+          >
+            Command Center
+          </Link>
+          <Link
             to="/dashboard"
             className="text-sm font-medium text-gray-300 transition-colors hover:text-white"
           >
