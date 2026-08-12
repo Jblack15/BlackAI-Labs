@@ -48,6 +48,21 @@ interface Lead {
     equity?: number | null;
     foreclosure_factor?: string | null;
   } | null;
+  // Seller pipeline CRM fields (PH1-B8) — all start NULL; real seller/operator
+  // data only, never fabricated.
+  asking_price: number | null;
+  desired_close: string | null; // YYYY-MM-DD
+  occupancy: "owner" | "tenant" | "vacant" | "unknown" | null;
+  motivation: string | null;
+  mortgage_balance: number | null;
+  mortgage_lender: string | null;
+  lien_info: string | null;
+  last_contact_at: string | null; // ISO datetime
+  next_action: string | null;
+  next_action_due: string | null; // YYYY-MM-DD
+  seller_notes: string | null;
+  seller_summary: string | null;
+  seller_summary_updated_at: string | null;
 }
 
 interface PipelineStageInfo {
@@ -198,6 +213,10 @@ const fetchLeads = createServerFn({ method: "GET" }).handler(async () => {
         COALESCE(NULLIF(l.outreach_status, ''), 'new') AS outreach_status,
         l.outreach_status_updated_at,
         l.apn, l.score, l.priority_queue, l.priority_updated_at, l.score_factors,
+        l.asking_price, l.desired_close, l.occupancy, l.motivation,
+        l.mortgage_balance, l.mortgage_lender, l.lien_info, l.last_contact_at,
+        l.next_action, l.next_action_due, l.seller_notes,
+        l.seller_summary, l.seller_summary_updated_at,
         COALESCE(pe.entered_at, l.created_at) AS stage_entered_at
       FROM leads l
       LEFT JOIN LATERAL (
@@ -406,6 +425,19 @@ const fetchOutreachHistory = createServerFn({ method: "GET" })
       return await getOutreachStatusHistory(data.leadId);
     } catch {
       return [];
+    }
+  });
+// Seller Pipeline CRM (PH1-B8): save operator/seller-recorded seller fields.
+// Writes ONE outreach_audit_log row (channel='seller_crm', direction='internal',
+// status='updated') per save and regenerates the data-derived seller summary.
+const saveSellerFields = createServerFn({ method: "POST" })
+  .validator((data: unknown) => data as { leadId: string; fields: Record<string, unknown> })
+  .handler(async ({ data }) => {
+    try {
+      const { saveSellerCrmFields } = await import("~/lib/seller-crm");
+      return await saveSellerCrmFields(data.leadId, data.fields as never, { operator: "crm-user" });
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : "Failed to save seller fields" };
     }
   });
 const bulkOutreach = createServerFn({ method: "POST" }).handler(async () => { try { const { startBulkOutreach } = await import("~/lib/outreach"); return await startBulkOutreach(); } catch (e) { return { success: false, started: 0, error: e instanceof Error ? e.message : "Outreach failed" }; } });
@@ -859,6 +891,7 @@ function LeadDetailModal({
   onManualTrace,
   onOutreachStatusChange,
   onMarkTerminal,
+  onSaveSellerFields,
   automationBusy,
   pipelineHistory,
   outreachHistory,
@@ -878,6 +911,7 @@ function LeadDetailModal({
   onManualTrace: (leadId: string, contact: { phone?: string; email?: string; dncFlag?: string }) => Promise<{ success: boolean; error?: string }>;
   onOutreachStatusChange: (leadId: string, to: string) => Promise<{ success: boolean; error?: string }>;
   onMarkTerminal: (leadId: string, terminal: string) => Promise<{ success: boolean; error?: string }>;
+  onSaveSellerFields: (leadId: string, fields: Record<string, unknown>) => Promise<{ success: boolean; error?: string; sellerSummary?: string }>;
   automationBusy: boolean;
   pipelineHistory: PipelineHistoryEntry[];
   outreachHistory: OutreachHistoryRow[];
@@ -940,6 +974,71 @@ function LeadDetailModal({
       setTraceResult({ success: false, error: "Failed to save contact info" });
     } finally {
       setTraceSaving(false);
+    }
+  };
+
+  // Seller Pipeline CRM (PH1-B8): local form state seeded from the lead; only
+  // fields the operator actually changes are sent to the server. All values are
+  // REAL recorded data — blank means "not recorded yet", never a guess.
+  const [sellerForm, setSellerForm] = useState(() => ({
+    askingPrice: lead.asking_price !== null ? String(lead.asking_price) : "",
+    desiredClose: lead.desired_close ?? "",
+    occupancy: lead.occupancy ?? "",
+    motivation: lead.motivation ?? "",
+    mortgageBalance: lead.mortgage_balance !== null ? String(lead.mortgage_balance) : "",
+    mortgageLender: lead.mortgage_lender ?? "",
+    lienInfo: lead.lien_info ?? "",
+    lastContactAt: lead.last_contact_at ? new Date(lead.last_contact_at).toISOString().slice(0, 16) : "",
+    nextAction: lead.next_action ?? "",
+    nextActionDue: lead.next_action_due ?? "",
+    sellerNotes: lead.seller_notes ?? "",
+  }));
+  const [sellerSaving, setSellerSaving] = useState(false);
+  const [sellerResult, setSellerResult] = useState<{ success: boolean; error?: string } | null>(null);
+  const setSellerField = (key: keyof typeof sellerForm, value: string) =>
+    setSellerForm((f) => ({ ...f, [key]: value }));
+  const handleSaveSellerFields = async () => {
+    setSellerSaving(true);
+    setSellerResult(null);
+    try {
+      // Only send fields that changed (undefined = untouched server-side).
+      const fields: Record<string, unknown> = {};
+      const patch = (key: keyof typeof sellerForm, dbKey: string, asNum = false) => {
+        const cur = sellerForm[key];
+        const prev =
+          key === "askingPrice" ? (lead.asking_price !== null ? String(lead.asking_price) : "")
+          : key === "mortgageBalance" ? (lead.mortgage_balance !== null ? String(lead.mortgage_balance) : "")
+          : key === "desiredClose" ? (lead.desired_close ?? "")
+          : key === "occupancy" ? (lead.occupancy ?? "")
+          : key === "lastContactAt" ? (lead.last_contact_at ? new Date(lead.last_contact_at).toISOString().slice(0, 16) : "")
+          : key === "nextActionDue" ? (lead.next_action_due ?? "")
+          : (lead[key as "motivation"] ?? "");
+        if (cur !== prev) {
+          const v = cur.trim();
+          fields[dbKey] = asNum ? (v === "" ? null : Number(v)) : v === "" ? null : v;
+        }
+      };
+      patch("askingPrice", "askingPrice", true);
+      patch("desiredClose", "desiredClose");
+      patch("occupancy", "occupancy");
+      patch("motivation", "motivation");
+      patch("mortgageBalance", "mortgageBalance", true);
+      patch("mortgageLender", "mortgageLender");
+      patch("lienInfo", "lienInfo");
+      patch("lastContactAt", "lastContactAt");
+      patch("nextAction", "nextAction");
+      patch("nextActionDue", "nextActionDue");
+      patch("sellerNotes", "sellerNotes");
+      if (Object.keys(fields).length === 0) {
+        setSellerResult({ success: false, error: "No seller fields changed." });
+        return;
+      }
+      const result = await onSaveSellerFields(lead.id, fields);
+      setSellerResult(result);
+    } catch {
+      setSellerResult({ success: false, error: "Failed to save seller fields" });
+    } finally {
+      setSellerSaving(false);
     }
   };
 
@@ -1272,6 +1371,197 @@ function LeadDetailModal({
                   ))}
                 </ol>
               )}
+            </div>
+          </div>
+
+          {/* Seller Pipeline (PH1-B8) — seller-facing deal record */}
+          <div className="rounded-lg border border-gold-500/20 bg-navy-900/50 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-white">Seller Pipeline</h3>
+              {lead.seller_summary_updated_at && (
+                <span className="text-[11px] text-gray-500">
+                  Summary generated {new Date(lead.seller_summary_updated_at).toLocaleString()}
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-[11px] text-gray-500">
+              The seller-facing deal record. Every field starts blank and is only ever filled with real
+              information a seller gave us or an operator recorded. Each save writes an audit row.
+            </p>
+
+            {/* Data-derived summary */}
+            <div className="mt-3 rounded-lg border border-navy-700 bg-navy-950/80 p-3">
+              <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-amber-300">
+                Data-derived summary (no AI model connected) — built from recorded fields and PropStream
+                scoring data; verify everything with the seller before acting.
+              </p>
+              {lead.seller_summary ? (
+                <pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed text-gray-300">
+                  {lead.seller_summary}
+                </pre>
+              ) : (
+                <p className="text-xs text-gray-600">
+                  No summary yet — generated once this lead has scoring data (or after the first seller
+                  fields are saved).
+                </p>
+              )}
+            </div>
+
+            {/* Editable seller fields */}
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                  Asking price ($)
+                </label>
+                <input
+                  type="number"
+                  value={sellerForm.askingPrice}
+                  onChange={(e) => setSellerField("askingPrice", e.target.value)}
+                  placeholder="Not recorded"
+                  className="w-full rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-gold-500 focus:outline-none focus:ring-1 focus:ring-gold-500"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                  Desired close
+                </label>
+                <input
+                  type="date"
+                  value={sellerForm.desiredClose}
+                  onChange={(e) => setSellerField("desiredClose", e.target.value)}
+                  className="w-full rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-white focus:border-gold-500 focus:outline-none focus:ring-1 focus:ring-gold-500"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                  Occupancy
+                </label>
+                <select
+                  value={sellerForm.occupancy}
+                  onChange={(e) => setSellerField("occupancy", e.target.value)}
+                  className="w-full rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-white focus:border-gold-500 focus:outline-none focus:ring-1 focus:ring-gold-500"
+                >
+                  <option value="">Not recorded</option>
+                  <option value="owner">Owner-occupied</option>
+                  <option value="tenant">Tenant-occupied</option>
+                  <option value="vacant">Vacant</option>
+                  <option value="unknown">Unknown</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                  Last contact
+                </label>
+                <input
+                  type="datetime-local"
+                  value={sellerForm.lastContactAt}
+                  onChange={(e) => setSellerField("lastContactAt", e.target.value)}
+                  className="w-full rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-white focus:border-gold-500 focus:outline-none focus:ring-1 focus:ring-gold-500"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                  Mortgage balance ($)
+                </label>
+                <input
+                  type="number"
+                  value={sellerForm.mortgageBalance}
+                  onChange={(e) => setSellerField("mortgageBalance", e.target.value)}
+                  placeholder="Not disclosed"
+                  className="w-full rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-gold-500 focus:outline-none focus:ring-1 focus:ring-gold-500"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                  Mortgage lender
+                </label>
+                <input
+                  type="text"
+                  value={sellerForm.mortgageLender}
+                  onChange={(e) => setSellerField("mortgageLender", e.target.value)}
+                  placeholder="Not disclosed"
+                  className="w-full rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-gold-500 focus:outline-none focus:ring-1 focus:ring-gold-500"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                  Next action
+                </label>
+                <input
+                  type="text"
+                  value={sellerForm.nextAction}
+                  onChange={(e) => setSellerField("nextAction", e.target.value)}
+                  placeholder="e.g. Call re: tax delinquency"
+                  className="w-full rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-gold-500 focus:outline-none focus:ring-1 focus:ring-gold-500"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                  Next action due
+                </label>
+                <input
+                  type="date"
+                  value={sellerForm.nextActionDue}
+                  onChange={(e) => setSellerField("nextActionDue", e.target.value)}
+                  className="w-full rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-white focus:border-gold-500 focus:outline-none focus:ring-1 focus:ring-gold-500"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                  Motivation (why they're selling)
+                </label>
+                <textarea
+                  rows={2}
+                  value={sellerForm.motivation}
+                  onChange={(e) => setSellerField("motivation", e.target.value)}
+                  placeholder="Not recorded — requires seller contact"
+                  className="w-full rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-gold-500 focus:outline-none focus:ring-1 focus:ring-gold-500"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                  Liens / title encumbrances
+                </label>
+                <input
+                  type="text"
+                  value={sellerForm.lienInfo}
+                  onChange={(e) => setSellerField("lienInfo", e.target.value)}
+                  placeholder="Not recorded"
+                  className="w-full rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-gold-500 focus:outline-none focus:ring-1 focus:ring-gold-500"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                  Seller notes
+                </label>
+                <textarea
+                  rows={2}
+                  value={sellerForm.sellerNotes}
+                  onChange={(e) => setSellerField("sellerNotes", e.target.value)}
+                  placeholder="Free-form operator notes"
+                  className="w-full rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-gold-500 focus:outline-none focus:ring-1 focus:ring-gold-500"
+                />
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <button
+                onClick={handleSaveSellerFields}
+                disabled={sellerSaving}
+                className="rounded-lg bg-gold-500 px-4 py-2 text-sm font-semibold text-navy-950 transition-colors hover:bg-gold-400 disabled:opacity-50"
+              >
+                {sellerSaving ? "Saving..." : "Save seller fields"}
+              </button>
+              {sellerResult && (
+                <span className={`text-xs ${sellerResult.success ? "text-emerald-400" : "text-red-400"}`}>
+                  {sellerResult.success
+                    ? "Saved — audit row written, summary updated."
+                    : sellerResult.error}
+                </span>
+              )}
+              <span className="text-[11px] text-gray-600">
+                Last contact is only written when you enter a real contact date — it is never
+                auto-stamped.
+              </span>
             </div>
           </div>
 
@@ -1755,6 +2045,19 @@ function CrmPage() {
       return { success: false, error: "Failed to mark terminal status" };
     }
   };
+  // --- Seller Pipeline CRM (PH1-B8) ---
+  const runSaveSellerFields = async (leadId: string, fields: Record<string, unknown>) => {
+    try {
+      const result = await saveSellerFields({ data: { leadId, fields } });
+      if (result.success) {
+        await refreshLeadState();
+        return { success: true as const, sellerSummary: result.sellerSummary };
+      }
+      return { success: false as const, error: result.error };
+    } catch {
+      return { success: false as const, error: "Failed to save seller fields" };
+    }
+  };
   // --- Skip-trace monitor state (PH1-B1) ---
   const [traceJobs, setTraceJobs] = useState<SkipTraceJobRow[]>([]);
   const [traceSummary, setTraceSummary] = useState<{ total: number; contactable: number; nonContactable: number } | null>(null);
@@ -2125,6 +2428,7 @@ function CrmPage() {
           onManualTrace={handleManualTrace}
           onOutreachStatusChange={runOutreachStatusChange}
           onMarkTerminal={runMarkTerminal}
+          onSaveSellerFields={runSaveSellerFields}
           automationBusy={automationBusy}
           pipelineHistory={pipelineHistory}
           outreachHistory={outreachHistory}
