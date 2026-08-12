@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as BuyersRouteImport } from './routes/buyers'
 import { Route as CalculatorRouteImport } from './routes/calculator'
+import { Route as CommandCenterRouteImport } from './routes/command-center'
 import { Route as ContractsRouteImport } from './routes/contracts'
 import { Route as CrmRouteImport } from './routes/crm'
 import { Route as DashboardRouteImport } from './routes/dashboard'
@@ -47,6 +48,11 @@ const BuyersRoute = BuyersRouteImport.update({
 const CalculatorRoute = CalculatorRouteImport.update({
   id: '/calculator',
   path: '/calculator',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CommandCenterRoute = CommandCenterRouteImport.update({
+  id: '/command-center',
+  path: '/command-center',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ContractsRoute = ContractsRouteImport.update({
@@ -159,6 +165,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/buyers': typeof BuyersRoute
   '/calculator': typeof CalculatorRoute
+  '/command-center': typeof CommandCenterRoute
   '/contracts': typeof ContractsRoute
   '/crm': typeof CrmRoute
   '/dashboard': typeof DashboardRoute
@@ -185,6 +192,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/buyers': typeof BuyersRoute
   '/calculator': typeof CalculatorRoute
+  '/command-center': typeof CommandCenterRoute
   '/contracts': typeof ContractsRoute
   '/crm': typeof CrmRoute
   '/dashboard': typeof DashboardRoute
@@ -212,6 +220,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/buyers': typeof BuyersRoute
   '/calculator': typeof CalculatorRoute
+  '/command-center': typeof CommandCenterRoute
   '/contracts': typeof ContractsRoute
   '/crm': typeof CrmRoute
   '/dashboard': typeof DashboardRoute
@@ -240,6 +249,7 @@ export interface FileRouteTypes {
     | '/'
     | '/buyers'
     | '/calculator'
+    | '/command-center'
     | '/contracts'
     | '/crm'
     | '/dashboard'
@@ -266,6 +276,7 @@ export interface FileRouteTypes {
     | '/'
     | '/buyers'
     | '/calculator'
+    | '/command-center'
     | '/contracts'
     | '/crm'
     | '/dashboard'
@@ -292,6 +303,7 @@ export interface FileRouteTypes {
     | '/'
     | '/buyers'
     | '/calculator'
+    | '/command-center'
     | '/contracts'
     | '/crm'
     | '/dashboard'
@@ -319,6 +331,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   BuyersRoute: typeof BuyersRoute
   CalculatorRoute: typeof CalculatorRoute
+  CommandCenterRoute: typeof CommandCenterRoute
   ContractsRoute: typeof ContractsRoute
   CrmRoute: typeof CrmRoute
   DashboardRoute: typeof DashboardRoute
@@ -363,6 +376,13 @@ declare module '@tanstack/react-router' {
       path: '/calculator'
       fullPath: '/calculator'
       preLoaderRoute: typeof CalculatorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/command-center': {
+      id: '/command-center'
+      path: '/command-center'
+      fullPath: '/command-center'
+      preLoaderRoute: typeof CommandCenterRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/contracts': {
@@ -519,6 +539,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BuyersRoute: BuyersRoute,
   CalculatorRoute: CalculatorRoute,
+  CommandCenterRoute: CommandCenterRoute,
   ContractsRoute: ContractsRoute,
   CrmRoute: CrmRoute,
   DashboardRoute: DashboardRoute,
