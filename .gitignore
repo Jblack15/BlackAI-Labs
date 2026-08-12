@@ -4,3 +4,4 @@ dist
 .astro
 .env
 .data
+.tanstack
