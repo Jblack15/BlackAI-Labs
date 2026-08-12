@@ -307,3 +307,159 @@ export async function campaignEconomics(funnel: FunnelCounts): Promise<CampaignE
     revenueTrackable,
   };
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HUMAN APPROVAL GATES (PH1-B11) — campaign spend + status changes
+// Enforcement points for the owner-approval spec (plan rev 18): spending above
+// a campaign's spend cap and major campaign changes (status switches,
+// budget/cap edits) require an approved approval_request of the matching kind
+// for that campaign before the write happens. These are the enforcement points
+// B10b's PAUSE recommendations drive: a RED campaign suggests pausing, but the
+// actual status change goes through updateCampaignStatus() which refuses to
+// apply it until the owner approves the 'campaign_change' request.
+//   recordCampaignSpend(campaignId, amountCents, operator, {note})
+//     - writes a REAL kind='actual' cost entry.
+//     - allowed WITHOUT approval when the campaign has a spend cap and the new
+//       total actual stays at or under it (cap = the owner's pre-approved
+//       budget; spending inside it needs no per-spend sign-off).
+//     - BLOCKED (error contains "requires approved approval_request") when the
+//       spend would push total actual above the cap (or there is no cap — an
+//       uncapped campaign has no pre-approved ceiling, so real money above $0
+//       needs the owner's 'spend' approval).
+//   updateCampaignStatus(campaignId, to, operator, {note, budgetCents,
+//   spendCapCents})
+//     - status changes (planned/active/paused/cancelled/completed) AND
+//       budget/cap edits require an approved 'campaign_change' request for the
+//       campaign. BLOCKED otherwise.
+// Both write nothing on block — a rejected spend never creates a cost entry.
+// ═══════════════════════════════════════════════════════════════════════════
+
+export type CampaignSpendResult = { success: true; id: string } | { success: false; error: string };
+export type CampaignChangeResult = { success: true } | { success: false; error: string };
+
+/** Total kind='actual' spend recorded for a campaign (real money moved). */
+async function campaignActualCents(campaignId: string): Promise<number> {
+  const rows = (await sql`
+    SELECT COALESCE(SUM(amount_cents), 0)::int AS n
+    FROM campaign_cost_entries
+    WHERE campaign_id = ${campaignId} AND kind = 'actual'
+  `) as Array<{ n: number }>;
+  return rows[0]?.n ?? 0;
+}
+
+/**
+ * Record a REAL actual cost entry for a campaign. Spend at or under the
+ * campaign's spend cap needs no approval (the cap is the owner's pre-approved
+ * budget); anything that would push total actual ABOVE the cap — or any spend
+ * on a campaign with no cap set — requires an approved 'spend'
+ * approval_request for that campaign first. Never writes on block.
+ */
+export async function recordCampaignSpend(
+  campaignId: string,
+  amountCents: number,
+  operator: string,
+  opts: { note?: string } = {},
+): Promise<CampaignSpendResult> {
+  try {
+    if (!Number.isFinite(amountCents) || amountCents < 0) {
+      return { success: false, error: "amountCents must be a non-negative number" };
+    }
+    const rows = (await sql`
+      SELECT id, spend_cap_cents FROM campaigns WHERE id = ${campaignId}
+    `) as Array<{ id: string; spend_cap_cents: number | null }>;
+    if (!rows.length) return { success: false, error: "Campaign not found" };
+    const spendCapCents = rows[0].spend_cap_cents === null ? null : Number(rows[0].spend_cap_cents);
+    const projected = (await campaignActualCents(campaignId)) + amountCents;
+    const withinCap = spendCapCents !== null && projected <= spendCapCents;
+    if (!withinCap) {
+      const { hasApproval } = await import("./approvals");
+      const approved = await hasApproval("spend", "campaign", campaignId, ["approved"]);
+      if (!approved) {
+        return {
+          success: false,
+          error:
+            `Blocked: requires approved approval_request (kind=spend, ref=campaign) — spend of $${(amountCents / 100).toFixed(2)} ` +
+            `would put total actual at $${(projected / 100).toFixed(2)}${spendCapCents !== null ? ` over the cap $${(spendCapCents / 100).toFixed(2)}` : " on an uncapped campaign"}. Request owner approval before spending.`,
+        };
+      }
+    }
+    const inserted = (await sql`
+      INSERT INTO campaign_cost_entries (campaign_id, amount_cents, kind, operator, note)
+      VALUES (${campaignId}, ${amountCents}, 'actual', ${operator}, ${opts.note ?? null})
+      RETURNING id
+    `) as Array<{ id: string }>;
+    return { success: true, id: String(inserted[0].id) };
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : "recordCampaignSpend failed" };
+  }
+}
+
+const CAMPAIGN_STATUSES = ["planned", "active", "paused", "completed", "cancelled"] as const;
+export type CampaignStatus = (typeof CAMPAIGN_STATUSES)[number];
+
+/**
+ * Apply a campaign status change and/or budget/cap edit. REQUIRES an approved
+ * 'campaign_change' approval_request for the campaign — status switches
+ * (active/paused/cancelled) and budget/cap edits are the major campaign
+ * parameter changes the owner must approve (plan rev 18). This is the gate
+ * B10b's pause recommendations drive: the recommendation never flips status
+ * itself; it routes through here and the owner signs off in /approvals.
+ */
+export async function updateCampaignStatus(
+  campaignId: string,
+  to: string,
+  operator: string,
+  opts: { note?: string; budgetCents?: number | null; spendCapCents?: number | null } = {},
+): Promise<CampaignChangeResult> {
+  try {
+    if (!CAMPAIGN_STATUSES.includes(to as CampaignStatus)) {
+      return { success: false, error: `Invalid campaign status: ${to}` };
+    }
+    const rows = (await sql`SELECT id FROM campaigns WHERE id = ${campaignId}`) as Array<{ id: string }>;
+    if (!rows.length) return { success: false, error: "Campaign not found" };
+    const { hasApproval } = await import("./approvals");
+    const approved = await hasApproval("campaign_change", "campaign", campaignId, ["approved"]);
+    if (!approved) {
+      return {
+        success: false,
+        error:
+          `Blocked: requires approved approval_request (kind=campaign_change, ref=campaign) — ` +
+          `status change to '${to}'${opts.budgetCents !== undefined ? " and/or budget/cap edit" : ""} needs owner approval before it is applied.`,
+      };
+    }
+    // Budget/cap edits accompany the status change when passed. Explicit
+    // NULL clears the cap (NULL = no cap); planned_budget_cents is NOT NULL
+    // so an explicit null budget means 0. Each branch passes only concrete
+    // values — neon treats interpolated undefined as an error, so the columns
+    // are simply omitted from the SET list when untouched.
+    if (opts.budgetCents !== undefined && opts.spendCapCents !== undefined) {
+      await sql`
+        UPDATE campaigns
+        SET status = ${to}, planned_budget_cents = ${opts.budgetCents ?? 0},
+            spend_cap_cents = ${opts.spendCapCents}, updated_at = now()
+        WHERE id = ${campaignId}
+      `;
+    } else if (opts.budgetCents !== undefined) {
+      await sql`
+        UPDATE campaigns
+        SET status = ${to}, planned_budget_cents = ${opts.budgetCents ?? 0}, updated_at = now()
+        WHERE id = ${campaignId}
+      `;
+    } else if (opts.spendCapCents !== undefined) {
+      await sql`
+        UPDATE campaigns
+        SET status = ${to}, spend_cap_cents = ${opts.spendCapCents}, updated_at = now()
+        WHERE id = ${campaignId}
+      `;
+    } else {
+      await sql`
+        UPDATE campaigns
+        SET status = ${to}, updated_at = now()
+        WHERE id = ${campaignId}
+      `;
+    }
+    return { success: true };
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : "updateCampaignStatus failed" };
+  }
+}

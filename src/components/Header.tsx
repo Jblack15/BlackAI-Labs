@@ -1,5 +1,30 @@
 import { Link } from "@tanstack/react-router";
-
+import { createServerFn } from "@tanstack/react-start";
+import { useState, useEffect } from "react";
+// Pending-approvals count for the nav badge (PH1-B11). 0 is the correct
+// production state until a real offer/contract/spend/change is requested.
+const fetchPendingApprovalCount = createServerFn({ method: "GET" }).handler(async () => {
+  try {
+    const { pendingApprovalCount } = await import("~/lib/approvals");
+    return await pendingApprovalCount();
+  } catch {
+    return 0;
+  }
+});
+function ApprovalBadge() {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    fetchPendingApprovalCount()
+      .then((n) => setCount(n ?? 0))
+      .catch(() => {});
+  }, []);
+  if (count === 0) return null;
+  return (
+    <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-gold-500 px-1 text-[10px] font-bold text-navy-900">
+      {count}
+    </span>
+  );
+}
 export function Header() {
   return (
     <header className="sticky top-0 z-50 border-b border-navy-700 bg-navy-900/95 backdrop-blur supports-[backdrop-filter]:bg-navy-900/80">
@@ -45,6 +70,13 @@ export function Header() {
             className="text-sm font-medium text-gray-300 transition-colors hover:text-white"
           >
             Buyers
+          </Link>
+          <Link
+            to="/approvals"
+            className="flex items-center text-sm font-medium text-gray-300 transition-colors hover:text-white"
+          >
+            Approvals
+            <ApprovalBadge />
           </Link>
           <div className="group relative">
             <button className="flex items-center gap-1 text-sm font-medium text-gray-300 transition-colors hover:text-white">

@@ -36,6 +36,15 @@
 //   pipeline while outreach_status still shows contact_attempted if the contact
 //   spine was never bumped — CRM buttons advance each pipeline separately.
 
+// HUMAN APPROVAL GATES (PH1-B11): transitions INTO offer, negotiation and
+// contract_signed are the owner-gated steps (plan rev 18 - final offers,
+// negotiation beyond approved parameters and legally binding contracts all
+// require human approval). The gate is enforced in lib/outreach-status.ts via
+// opts.requireApproval (checked against an approved approval_request for the
+// lead, kind 'offer' for offer/negotiation and 'contract' for
+// contract_signed) and wired at the CRM layer. The pure map below stays
+// gate-free so the client can still render valid next statuses.
+
 export const OUTREACH_STATUSES = [
   "new",
   "contactable",
