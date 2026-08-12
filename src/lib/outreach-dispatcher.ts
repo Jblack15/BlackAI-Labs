@@ -67,6 +67,8 @@ async function sendSmsStep(row: DueOutreachRow): Promise<StepOutcome> {
   }
   if (!row.phone) return { ok: false, error: "Lead has no phone number" };
   const businessName = await getBusinessName();
+  // Outreach status spine (PH1-B6): sendSms bumps the lead to contact_attempted
+  // on a real transmission — no status handling needed here.
   const result = await sendSms(row.phone, template(row.full_name, buildAddress(row), businessName), row.lead_id);
   return result.success ? { ok: true } : { ok: false, error: result.error || "SMS send failed" };
 }

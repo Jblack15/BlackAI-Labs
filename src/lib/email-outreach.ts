@@ -355,6 +355,16 @@ export async function sendEmail(opts: {
       contactValue: opts.to,
       contentPreview: opts.subject,
     });
+    // Outreach status spine (PH1-B6): a real transmission advances pre-contact
+    // leads to contact_attempted. Guarded — the bump must never break the send.
+    if (opts.leadId) {
+      try {
+        const { noteOutreachAttempt } = await import("~/lib/outreach-status");
+        await noteOutreachAttempt(opts.leadId, "email", "sent");
+      } catch {
+        // never let the status bump break a send
+      }
+    }
     await logEmail({ leadId: opts.leadId, to: opts.to, subject: opts.subject, body: opts.html, status: "sent", providerId: info.messageId });
     return { success: true, messageId: info.messageId };
   } catch (err: unknown) {

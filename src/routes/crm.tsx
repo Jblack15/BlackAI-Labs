@@ -3,6 +3,12 @@ import { createServerFn } from "@tanstack/react-start";
 import { useState, useMemo, useEffect } from "react";
 import type { PostcardCampaign } from "~/lib/postcard-templates";
 import { VALID_TRANSITIONS, validNextStages } from "~/lib/pipeline-transitions";
+import {
+  OUTREACH_TRANSITIONS,
+  validNextOutreachStatuses,
+  isTerminalOutreachStatus,
+  outreachStatusLabel,
+} from "~/lib/outreach-status-map";
 
 // --- Types ---
 interface Lead {
@@ -32,6 +38,8 @@ interface Lead {
   traced_at: string | null;
   dnc_flag: string | null;
   contactable: boolean;
+  outreach_status: string; // contact pipeline (PH1-B6) — new/contactable/.../dead_lead
+  outreach_status_updated_at: string | null;
 }
 
 interface PipelineStageInfo {
@@ -151,6 +159,28 @@ const MAIL_CAMPAIGN_LABELS: Record<string, string> = {
 };
 const MAIL_COST_PER_PIECE = 0.6;
 
+// Terminal outreach-status quick buttons (PH1-B6). Each routes through
+// markTerminalStatus, which transitions the state machine AND syncs the
+// matching suppression flag (opted_out also writes a consent record).
+const TERMINAL_QUICK_BUTTONS: Array<{ value: string; label: string; className: string }> = [
+  { value: "dnc", label: "DNC", className: "border-red-500/40 bg-red-500/10 text-red-300" },
+  { value: "do_not_mail", label: "Do Not Mail", className: "border-slate-500/40 bg-slate-500/10 text-slate-300" },
+  { value: "not_interested", label: "Not Interested", className: "border-orange-500/40 bg-orange-500/10 text-orange-300" },
+  { value: "wrong_number", label: "Wrong Number", className: "border-orange-500/40 bg-orange-500/10 text-orange-300" },
+  { value: "opted_out", label: "Opted Out", className: "border-red-500/40 bg-red-500/10 text-red-300" },
+  { value: "invalid_contact", label: "Invalid Contact", className: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
+  { value: "dead_lead", label: "Dead Lead", className: "border-red-500/40 bg-red-500/10 text-red-300" },
+];
+
+interface OutreachHistoryRow {
+  id: number;
+  from: string;
+  to: string;
+  reason: string | null;
+  operator: string | null;
+  created_at: string;
+}
+
 // --- Server Functions ---
 const fetchLeads = createServerFn({ method: "GET" }).handler(async () => {
   try {
@@ -165,6 +195,8 @@ const fetchLeads = createServerFn({ method: "GET" }).handler(async () => {
         COALESCE(NULLIF(l.pipeline_stage, ''), 'new_lead') AS pipeline_stage,
         COALESCE(l.trace_status, 'NOT_TRACED') AS trace_status,
         l.trace_source, l.traced_at, l.dnc_flag, l.contactable,
+        COALESCE(NULLIF(l.outreach_status, ''), 'new') AS outreach_status,
+        l.outreach_status_updated_at,
         COALESCE(pe.entered_at, l.created_at) AS stage_entered_at
       FROM leads l
       LEFT JOIN LATERAL (
@@ -302,25 +334,77 @@ const recordManualTrace = createServerFn({ method: "POST" })
     }
   });
 const startOutreach = createServerFn({ method: "POST" }).validator((data: unknown) => data as { leadId: string }).handler(async ({ data }) => { try { const { startSmsOutreach } = await import("~/lib/outreach"); return await startSmsOutreach(data.leadId); } catch (e) { return { success: false, error: e instanceof Error ? e.message : "Outreach failed" }; } });
-// --- Compliance actions (PH1-B2) ---
-// Human-in-the-loop suppression: "Mark opted out / wrong number / invalid /
-// do-not-mail" in the lead modal. Each action sets the flag, writes a consent
-// record (for opt-outs) and an outreach_audit_log row with the operator.
-const recordComplianceAction = createServerFn({ method: "POST" })
+// --- Outreach status actions (PH1-B6) ---
+// The contact-pipeline spine: valid transitions go through the state machine
+// (which writes an outreach_audit_log row per change); terminal states also
+// sync the matching suppression flag so the B1/B2 compliance hard block stays
+// engaged (opted_out additionally records consent via recordSuppression).
+const setOutreachStatus = createServerFn({ method: "POST" })
   .validator((data: unknown) => {
-    const d = data as { leadId: string; flag: string };
-    if (!d?.leadId || !d?.flag) throw new Error("leadId and flag are required");
+    const d = data as { leadId: string; to: string };
+    if (!d?.leadId || !d?.to) throw new Error("leadId and to are required");
     return d;
   })
   .handler(async ({ data }) => {
     try {
-      const { recordSuppression } = await import("~/lib/compliance");
-      return await recordSuppression(data.leadId, data.flag as "do_not_mail" | "opted_out" | "invalid_contact" | "wrong_number", {
+      const { transitionOutreachStatus } = await import("~/lib/outreach-status");
+      return await transitionOutreachStatus(data.leadId, data.to, {
+        reason: "Manual transition from CRM lead modal",
         operator: "crm-user",
-        detail: "Marked manually from CRM lead modal",
       });
     } catch (e) {
-      return { success: false, error: e instanceof Error ? e.message : "Failed to record suppression" };
+      return { success: false, error: e instanceof Error ? e.message : "Status transition failed" };
+    }
+  });
+const markTerminalStatus = createServerFn({ method: "POST" })
+  .validator((data: unknown) => {
+    const d = data as { leadId: string; terminal: string };
+    if (!d?.leadId || !d?.terminal) throw new Error("leadId and terminal are required");
+    return d;
+  })
+  .handler(async ({ data }) => {
+    try {
+      const { sql } = await import("~/db");
+      const { transitionOutreachStatus } = await import("~/lib/outreach-status");
+      const { recordSuppression } = await import("~/lib/compliance");
+      const to = data.terminal;
+      // 1. State machine transition (validated; terminals are absorbing — a
+      //    second terminal mark on the same lead is rejected here).
+      const res = await transitionOutreachStatus(data.leadId, to, {
+        reason: `Marked terminal (${to}) from CRM lead modal`,
+        operator: "crm-user",
+      });
+      if (!res.success) return res;
+      // 2. Sync the matching suppression flag so compliance hard blocks engage.
+      if (to === "dnc") {
+        await sql`UPDATE leads SET dnc_flag = 'DNC' WHERE id = ${data.leadId}`;
+      } else if (["do_not_mail", "opted_out", "invalid_contact", "wrong_number"].includes(to)) {
+        // recordSuppression sets the boolean flag, writes an audit row, and for
+        // opted_out also writes the consent record (granted=false) — the same
+        // path handleOptOut uses for inbound STOPs.
+        await recordSuppression(data.leadId, to as "do_not_mail" | "opted_out" | "invalid_contact" | "wrong_number", {
+          operator: "crm-user",
+          detail: `Marked terminal (${to}) from CRM lead modal`,
+        });
+      }
+      // not_interested / dead_lead carry no suppression flag — status only.
+      return { success: true as const };
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : "Failed to mark terminal status" };
+    }
+  });
+const fetchOutreachHistory = createServerFn({ method: "GET" })
+  .validator((data: unknown) => {
+    const d = data as { leadId: string };
+    if (!d?.leadId) throw new Error("leadId is required");
+    return d;
+  })
+  .handler(async ({ data }) => {
+    try {
+      const { getOutreachStatusHistory } = await import("~/lib/outreach-status");
+      return await getOutreachStatusHistory(data.leadId);
+    } catch {
+      return [];
     }
   });
 const bulkOutreach = createServerFn({ method: "POST" }).handler(async () => { try { const { startBulkOutreach } = await import("~/lib/outreach"); return await startBulkOutreach(); } catch (e) { return { success: false, started: 0, error: e instanceof Error ? e.message : "Outreach failed" }; } });
@@ -515,6 +599,45 @@ function ContactableDot({ contactable }: { contactable: boolean }) {
     <span className="inline-block h-1.5 w-1.5 rounded-full bg-slate-600" title="Not contactable — no usable contact info" />
   );
 }
+// --- Outreach status badge (PH1-B6) ---
+// Color convention: active states blue/green (progress), terminal states
+// red/gray (absorbing — outreach must stop), follow_up amber (nurture).
+const OUTREACH_BADGE_CLASSES: Record<string, string> = {
+  new: "bg-slate-500/20 text-slate-300 border-slate-500/30",
+  contactable: "bg-blue-500/20 text-blue-300 border-blue-500/30",
+  outreach_queued: "bg-cyan-500/20 text-cyan-300 border-cyan-500/30",
+  contact_attempted: "bg-sky-500/20 text-sky-300 border-sky-500/30",
+  connected: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+  qualified: "bg-teal-500/20 text-teal-300 border-teal-500/30",
+  offer: "bg-gold-500/20 text-gold-300 border-gold-500/30",
+  negotiation: "bg-indigo-500/20 text-indigo-300 border-indigo-500/30",
+  contract_sent: "bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/30",
+  contract_signed: "bg-green-500/20 text-green-300 border-green-500/30",
+  buyer_matched: "bg-lime-500/20 text-lime-300 border-lime-500/30",
+  title: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30",
+  closed: "bg-gold-500/20 text-gold-300 border-gold-500/30",
+  assignment_paid: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+  follow_up: "bg-amber-500/20 text-amber-300 border-amber-500/30",
+  // Terminal states — red (hard stop) or gray (administrative)
+  dnc: "bg-red-500/20 text-red-300 border-red-500/30",
+  opted_out: "bg-red-500/20 text-red-300 border-red-500/30",
+  not_interested: "bg-red-500/20 text-red-300 border-red-500/30",
+  dead_lead: "bg-red-500/20 text-red-300 border-red-500/30",
+  do_not_mail: "bg-slate-500/20 text-slate-300 border-slate-500/30",
+  invalid_contact: "bg-amber-500/20 text-amber-300 border-amber-500/30",
+  wrong_number: "bg-orange-500/20 text-orange-300 border-orange-500/30",
+};
+function OutreachStatusBadge({ status }: { status: string }) {
+  const cls = OUTREACH_BADGE_CLASSES[status] || OUTREACH_BADGE_CLASSES.new;
+  const title = isTerminalOutreachStatus(status)
+    ? `${outreachStatusLabel(status)} — terminal (absorbing): outreach must stop on this contact`
+    : `${outreachStatusLabel(status)} — contact pipeline status`;
+  return (
+    <span className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-medium ${cls}`} title={title}>
+      {outreachStatusLabel(status)}
+    </span>
+  );
+}
 // --- Skip-trace job panel types (mirror of lib/skip-trace.ts) ---
 interface SkipTraceJobRow {
   id: number;
@@ -653,6 +776,7 @@ function LeadCard({
         <StatusBadge stage={lead.pipeline_stage} stages={stages} />
       </div>
       <div className="mb-2 flex flex-wrap items-center gap-1.5">
+        <OutreachStatusBadge status={lead.outreach_status} />
         <TraceBadge status={lead.trace_status} />
         {lead.dnc_flag ? (
           <span className="rounded border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-[10px] font-medium text-red-300">
@@ -703,9 +827,11 @@ function LeadDetailModal({
   onStartEmailOutreach,
   onSendMail,
   onManualTrace,
-  onComplianceAction,
+  onOutreachStatusChange,
+  onMarkTerminal,
   automationBusy,
   pipelineHistory,
+  outreachHistory,
 }: {
   lead: Lead;
   stages: PipelineStageInfo[];
@@ -720,25 +846,41 @@ function LeadDetailModal({
   onStartEmailOutreach: (id: string) => void;
   onSendMail: (leadId: string, campaign?: string) => void;
   onManualTrace: (leadId: string, contact: { phone?: string; email?: string; dncFlag?: string }) => Promise<{ success: boolean; error?: string }>;
-  onComplianceAction: (leadId: string, flag: string) => Promise<{ success: boolean; error?: string }>;
+  onOutreachStatusChange: (leadId: string, to: string) => Promise<{ success: boolean; error?: string }>;
+  onMarkTerminal: (leadId: string, terminal: string) => Promise<{ success: boolean; error?: string }>;
   automationBusy: boolean;
   pipelineHistory: PipelineHistoryEntry[];
+  outreachHistory: OutreachHistoryRow[];
 }) {
   const [smsMessage, setSmsMessage] = useState("");
   const [mailCampaign, setMailCampaign] = useState("auto");
-  // Compliance suppression state (PH1-B2)
-  const [complianceBusy, setComplianceBusy] = useState<string | null>(null);
-  const [complianceResult, setComplianceResult] = useState<{ success: boolean; error?: string } | null>(null);
-  const handleCompliance = async (flag: string) => {
-    setComplianceBusy(flag);
-    setComplianceResult(null);
+  // Outreach status actions (PH1-B6) — replaces the B2 compliance buttons; every
+  // terminal mark now transitions the state machine AND syncs the suppression
+  // flag (opted_out also writes the consent record).
+  const [outreachBusy, setOutreachBusy] = useState<string | null>(null);
+  const [outreachResult, setOutreachResult] = useState<{ success: boolean; error?: string } | null>(null);
+  const handleOutreachChange = async (to: string) => {
+    setOutreachBusy(to);
+    setOutreachResult(null);
     try {
-      const result = await onComplianceAction(lead.id, flag);
-      setComplianceResult(result);
+      const result = await onOutreachStatusChange(lead.id, to);
+      setOutreachResult(result);
     } catch {
-      setComplianceResult({ success: false, error: "Failed to record suppression" });
+      setOutreachResult({ success: false, error: "Failed to update outreach status" });
     } finally {
-      setComplianceBusy(null);
+      setOutreachBusy(null);
+    }
+  };
+  const handleMarkTerminal = async (terminal: string) => {
+    setOutreachBusy(terminal);
+    setOutreachResult(null);
+    try {
+      const result = await onMarkTerminal(lead.id, terminal);
+      setOutreachResult(result);
+    } catch {
+      setOutreachResult({ success: false, error: "Failed to mark terminal status" });
+    } finally {
+      setOutreachBusy(null);
     }
   };
   // Backup trace form state (PH1-B1): manual contact-info entry works regardless
@@ -776,6 +918,14 @@ function LeadDetailModal({
     const all = stages.map((s) => s.name);
     return validNextStages(lead.pipeline_stage, all).filter((s) => s !== lead.pipeline_stage);
   }, [lead.pipeline_stage, stages]);
+
+  // Outreach status (PH1-B6): valid next statuses drive the selector; terminal
+  // states are absorbing and disable it (override is an explicit API-level path).
+  const outreachNextOptions = useMemo(
+    () => validNextOutreachStatuses(lead.outreach_status).filter((s) => s !== lead.outreach_status),
+    [lead.outreach_status],
+  );
+  const outreachIsTerminal = isTerminalOutreachStatus(lead.outreach_status);
 
   const recommendedNext = useMemo(
     () => (VALID_TRANSITIONS[lead.pipeline_stage] || []).find((s) => s !== "closed_lost"),
@@ -975,53 +1125,124 @@ function LeadDetailModal({
               </div>
             )}
           </div>
-          {/* Compliance / Suppression (PH1-B2) — human-in-the-loop */}
-          <div className="rounded-lg border border-red-500/20 bg-navy-900/50 p-4">
+          {/* Outreach Status (PH1-B6) — the contact pipeline */}
+          <div className="rounded-lg border border-blue-500/20 bg-navy-900/50 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold text-white">Compliance &amp; Suppression</h3>
-              <span className="text-[11px] text-gray-500">Every action is written to the audit log</span>
+              <h3 className="text-sm font-semibold text-white">Outreach Status</h3>
+              <span className="flex items-center gap-2">
+                <OutreachStatusBadge status={lead.outreach_status} />
+                {lead.outreach_status_updated_at && (
+                  <span className="text-[11px] text-gray-500">
+                    {new Date(lead.outreach_status_updated_at).toLocaleString()}
+                  </span>
+                )}
+              </span>
             </div>
             <p className="mt-1 text-[11px] text-gray-500">
-              Mark this contact so the system never reaches them again. Opted-out also records a consent
-              record (granted=false). Contactable is recomputed automatically.
+              The contact pipeline (independent of the deal pipeline above). Every change is written to
+              the audit log. Terminal states are absorbing — once marked, outreach stops unless an
+              explicit override is recorded.
             </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                onClick={() => handleCompliance("opted_out")}
-                disabled={complianceBusy !== null}
-                className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-300 disabled:opacity-50"
+
+            {/* Valid-transition selector (driven by the state map) */}
+            <div className="mt-3">
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                Move to next status
+              </label>
+              <select
+                value={lead.outreach_status}
+                onChange={(e) => {
+                  if (e.target.value !== lead.outreach_status) handleOutreachChange(e.target.value);
+                }}
+                disabled={outreachIsTerminal || outreachNextOptions.length === 0 || outreachBusy !== null}
+                className="w-full rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-white focus:border-gold-500 focus:outline-none focus:ring-1 focus:ring-gold-500 disabled:opacity-50"
               >
-                {complianceBusy === "opted_out" ? "Saving..." : "Mark Opted Out"}
-              </button>
-              <button
-                onClick={() => handleCompliance("wrong_number")}
-                disabled={complianceBusy !== null}
-                className="rounded-lg border border-orange-500/40 bg-orange-500/10 px-3 py-1.5 text-xs font-medium text-orange-300 disabled:opacity-50"
-              >
-                {complianceBusy === "wrong_number" ? "Saving..." : "Wrong Number"}
-              </button>
-              <button
-                onClick={() => handleCompliance("invalid_contact")}
-                disabled={complianceBusy !== null}
-                className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-300 disabled:opacity-50"
-              >
-                {complianceBusy === "invalid_contact" ? "Saving..." : "Invalid Contact"}
-              </button>
-              <button
-                onClick={() => handleCompliance("do_not_mail")}
-                disabled={complianceBusy !== null}
-                className="rounded-lg border border-slate-500/40 bg-slate-500/10 px-3 py-1.5 text-xs font-medium text-slate-300 disabled:opacity-50"
-              >
-                {complianceBusy === "do_not_mail" ? "Saving..." : "Do Not Mail"}
-              </button>
+                <option value={lead.outreach_status}>{outreachStatusLabel(lead.outreach_status)}</option>
+                {outreachNextOptions.map((s) => (
+                  <option key={s} value={s}>
+                    {outreachStatusLabel(s)}
+                  </option>
+                ))}
+              </select>
+              {outreachIsTerminal && (
+                <p className="mt-1 text-[11px] text-red-400">
+                  Terminal (absorbing) — this lead must not be contacted. Leaving this state requires an
+                  explicit documented override (not available in the CRM).
+                </p>
+              )}
+              {!outreachIsTerminal && (
+                <p className="mt-1 text-[11px] text-gray-600">
+                  Only valid next statuses are shown (enforced by the outreach state machine).
+                </p>
+              )}
             </div>
-            {complianceResult && (
-              <p className={`mt-2 text-xs ${complianceResult.success ? "text-emerald-400" : "text-red-400"}`}>
-                {complianceResult.success
-                  ? "Suppression recorded — this contact is now blocked on the affected channel(s) and audit-logged."
-                  : complianceResult.error}
+
+            {/* Terminal quick buttons — status + suppression flag + audit/consent */}
+            <div className="mt-3">
+              <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                Mark terminal
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {TERMINAL_QUICK_BUTTONS.map((b) => (
+                  <button
+                    key={b.value}
+                    onClick={() => handleMarkTerminal(b.value)}
+                    disabled={outreachIsTerminal || outreachBusy !== null}
+                    className={`rounded-lg border px-3 py-1.5 text-xs font-medium disabled:opacity-40 ${b.className}`}
+                    title={
+                      outreachIsTerminal
+                        ? "Lead is already in a terminal status — override not available in CRM"
+                        : `Mark ${b.label} — sets the suppression flag and audits the change${
+                            b.value === "opted_out" ? " (also records consent)" : ""
+                          }`
+                    }
+                  >
+                    {outreachBusy === b.value ? "Saving..." : b.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {outreachResult && (
+              <p className={`mt-2 text-xs ${outreachResult.success ? "text-emerald-400" : "text-red-400"}`}>
+                {outreachResult.success
+                  ? "Outreach status updated — audit row written."
+                  : outreachResult.error}
               </p>
             )}
+
+            {/* Status-change history */}
+            <div className="mt-4">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+                Outreach Status History
+              </h4>
+              {outreachHistory.length === 0 ? (
+                <p className="mt-1 text-xs text-gray-600">
+                  No status changes recorded yet — the lead is{" "}
+                  <span className="text-gold-400">{outreachStatusLabel(lead.outreach_status)}</span>.
+                </p>
+              ) : (
+                <ol className="relative mt-2 space-y-2 border-l border-navy-700 pl-4">
+                  {outreachHistory.map((h) => (
+                    <li key={h.id} className="relative">
+                      <span className="absolute -left-[13px] top-1 h-1.5 w-1.5 rounded-full bg-blue-500" />
+                      <div className="flex flex-wrap items-center justify-between gap-1 text-xs">
+                        <span className="text-gray-300">
+                          {outreachStatusLabel(h.from)} <span className="text-gray-500">→</span>{" "}
+                          <span className="text-blue-300">{outreachStatusLabel(h.to)}</span>
+                          {h.operator && h.operator !== "crm-user" && (
+                            <span className="text-gray-500"> · {h.operator}</span>
+                          )}
+                        </span>
+                        <span className="text-[10px] text-gray-600">
+                          {new Date(h.created_at).toLocaleString()}
+                        </span>
+                      </div>
+                      {h.reason && <p className="mt-0.5 text-[10px] text-gray-600">{h.reason}</p>}
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
           </div>
 
           {/* Stage Dropdown (valid next stages only) */}
@@ -1350,6 +1571,9 @@ function ListView({
             <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-400">
               Trace
             </th>
+            <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-400">
+              Outreach
+            </th>
             <th
               className="cursor-pointer px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-white"
               onClick={() => toggleSort("created_at")}
@@ -1408,6 +1632,9 @@ function ListView({
                     <TraceBadge status={lead.trace_status} />
                   </span>
                 </td>
+                <td className="px-4 py-3">
+                  <OutreachStatusBadge status={lead.outreach_status} />
+                </td>
                 <td className="px-4 py-3 text-xs text-gray-500">
                   {formatDate(lead.created_at)}
                 </td>
@@ -1441,24 +1668,45 @@ function CrmPage() {
   const [smsResult, setSmsResult] = useState<{ success: boolean; error?: string } | null>(null);
   const [automationBusy, setAutomationBusy] = useState(false);
   const [pipelineHistory, setPipelineHistory] = useState<PipelineHistoryEntry[]>([]);
+  const [outreachHistory, setOutreachHistory] = useState<OutreachHistoryRow[]>([]);
   const runSkipTrace = async (ids?: string[]) => { setAutomationBusy(true); try { const result = await skipTrace({ data: { ids } }); if (!result.success) alert(result.error); else { alert(result.message || `Skip trace requested: ${result.updated} lead(s) marked.`); loadTraceJobs(); } if (result.success && ids?.[0]) { const refreshed = await fetchLeads(); setLeads(refreshed.leads); setDbUnavailable(refreshed.dbUnavailable); setSelectedLead(refreshed.leads.find((l) => l.id === ids[0]) || null); } } catch { alert("Skip trace failed"); } finally { setAutomationBusy(false); } };
   const runOutreach = async (id: string) => { setAutomationBusy(true); try { const result = await startOutreach({ data: { leadId: id } }); if (!result.success) alert(result.error); else alert("SMS outreach started."); } catch { alert("Outreach failed"); } finally { setAutomationBusy(false); } };
   const runEmailOutreach = async (id: string) => { setAutomationBusy(true); try { const result = await startEmailOutreach({ data: { leadId: id } }); if (!result.success) alert(result.error); else alert(`Email outreach started — Email 1 sent, ${result.scheduled || 4} follow-ups scheduled.`); } catch { alert("Email outreach failed"); } finally { setAutomationBusy(false); } };
   const runSendMail = async (id: string, campaign?: string) => { setAutomationBusy(true); try { const result = await sendMailToLead({ data: { leadId: id, campaign } }); if (!result.success) alert(result.error || "Direct mail failed"); else alert(`Postcard submitted to Click2Mail — ${result.sent} piece(s) queued.`); } catch { alert("Direct mail failed"); } finally { setAutomationBusy(false); } };
   const runBulkSendMail = async (ids: string[]) => { setAutomationBusy(true); try { const result = await bulkSendMail({ data: { ids } }); if (!result.success) alert(result.error || "Bulk direct mail failed"); else alert(`Direct mail submitted — ${result.sent} postcard(s) queued.`); } catch { alert("Bulk direct mail failed"); } finally { setAutomationBusy(false); } };
-  // --- Compliance action handler (PH1-B2) ---
-  const runComplianceAction = async (leadId: string, flag: string) => {
+  // --- Outreach status handlers (PH1-B6) ---
+  const refreshLeadState = async () => {
+    const refreshed = await fetchLeads().catch(() => null);
+    if (refreshed) {
+      setLeads(refreshed.leads);
+      setDbUnavailable(refreshed.dbUnavailable);
+      setSelectedLead((prev) => (prev ? refreshed.leads.find((l) => l.id === prev.id) ?? prev : prev));
+    }
+  };
+  const runOutreachStatusChange = async (leadId: string, to: string) => {
     try {
-      const result = await recordComplianceAction({ data: { leadId, flag } });
-      const refreshed = await fetchLeads().catch(() => null);
-      if (refreshed) {
-        setLeads(refreshed.leads);
-        setDbUnavailable(refreshed.dbUnavailable);
-        setSelectedLead((prev) => (prev ? refreshed.leads.find((l) => l.id === prev.id) ?? prev : prev));
+      const result = await setOutreachStatus({ data: { leadId, to } });
+      await refreshLeadState();
+      if (result.success && selectedLead?.id === leadId) {
+        const rows = await fetchOutreachHistory({ data: { leadId } }).catch(() => []);
+        if (rows) setOutreachHistory(rows);
       }
       return { success: result.success, error: result.error };
     } catch {
-      return { success: false, error: "Failed to record suppression" };
+      return { success: false, error: "Failed to update outreach status" };
+    }
+  };
+  const runMarkTerminal = async (leadId: string, terminal: string) => {
+    try {
+      const result = await markTerminalStatus({ data: { leadId, terminal } });
+      await refreshLeadState();
+      if (result.success && selectedLead?.id === leadId) {
+        const rows = await fetchOutreachHistory({ data: { leadId } }).catch(() => []);
+        if (rows) setOutreachHistory(rows);
+      }
+      return { success: result.success, error: result.error };
+    } catch {
+      return { success: false, error: "Failed to mark terminal status" };
     }
   };
   // --- Skip-trace monitor state (PH1-B1) ---
@@ -1557,6 +1805,7 @@ function CrmPage() {
       setSmsLogs([]);
       setSmsResult(null);
       setPipelineHistory([]);
+      setOutreachHistory([]);
       fetchLeadSmsLogs({ data: { leadId: selectedLead.id } })
         .then((data) => {
           if (data) setSmsLogs(data);
@@ -1565,6 +1814,11 @@ function CrmPage() {
       fetchPipelineHistory({ data: { leadId: selectedLead.id } })
         .then((data) => {
           if (data) setPipelineHistory(data);
+        })
+        .catch(() => {});
+      fetchOutreachHistory({ data: { leadId: selectedLead.id } })
+        .then((data) => {
+          if (data) setOutreachHistory(data);
         })
         .catch(() => {});
     }
@@ -1812,9 +2066,11 @@ function CrmPage() {
           onStartEmailOutreach={runEmailOutreach}
           onSendMail={runSendMail}
           onManualTrace={handleManualTrace}
-          onComplianceAction={runComplianceAction}
+          onOutreachStatusChange={runOutreachStatusChange}
+          onMarkTerminal={runMarkTerminal}
           automationBusy={automationBusy}
           pipelineHistory={pipelineHistory}
+          outreachHistory={outreachHistory}
         />
       )}
     </div>

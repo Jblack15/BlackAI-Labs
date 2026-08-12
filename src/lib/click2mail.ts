@@ -379,6 +379,14 @@ export async function sendPostcards(
         lastJobId = jobId;
         for (const lead of group) {
           await logOutreachAudit({ leadId: lead.id, channel: "mail", direction: "outbound", status: "sent", contactValue: lead.address });
+          // Outreach status spine (PH1-B6): a piece submitted for production is
+          // a real transmission — advance pre-contact leads to contact_attempted.
+          try {
+            const { noteOutreachAttempt } = await import("~/lib/outreach-status");
+            await noteOutreachAttempt(lead.id, "mail", "sent");
+          } catch {
+            // never let the status bump break a send
+          }
           await logMail({
             leadId: lead.id,
             campaign,
