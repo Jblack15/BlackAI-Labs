@@ -175,6 +175,9 @@ interface Next25Row {
   priority_queue: string | null;
   contactable: boolean;
   estimated_mao: number | null;
+  asking_price: number | null; // Seller pipeline (PH1-B8) — read-only here
+  desired_close: string | null;
+  next_action: string | null;
 }
 interface Next25Payload {
   ok: boolean;
@@ -198,6 +201,9 @@ const fetchNext25 = createServerFn({ method: "GET" }).handler(async (): Promise<
         priority_queue: l.priority_queue,
         contactable: l.contactable,
         estimated_mao: l.score_factors?.estimated_mao ?? null,
+        asking_price: l.asking_price ?? null,
+        desired_close: l.desired_close ?? null,
+        next_action: l.next_action ?? null,
       })),
       queues,
     };
@@ -240,7 +246,7 @@ function Next25Panel({ payload }: { payload: Next25Payload }) {
         </p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-left text-sm">
+          <table className="w-full min-w-[920px] text-left text-sm">
             <thead>
               <tr className="border-b border-navy-700 text-xs uppercase tracking-wider text-gray-500">
                 <th className="py-2 pr-3">#</th>
@@ -248,6 +254,8 @@ function Next25Panel({ payload }: { payload: Next25Payload }) {
                 <th className="py-2 pr-3">Priority</th>
                 <th className="py-2 pr-3">Score</th>
                 <th className="py-2 pr-3">Est. MAO</th>
+                <th className="py-2 pr-3">Asking</th>
+                <th className="py-2 pr-3">Next Action</th>
                 <th className="py-2 pr-3">ZIP</th>
                 <th className="py-2 pr-3">Contact</th>
                 <th className="py-2" />
@@ -275,6 +283,20 @@ function Next25Panel({ payload }: { payload: Next25Payload }) {
                     {l.estimated_mao !== null && l.estimated_mao !== undefined
                       ? `${Math.round(l.estimated_mao).toLocaleString("en-US")}`
                       : "—"}
+                  </td>
+                  <td className="py-2 pr-3 text-gray-300">
+                    {l.asking_price !== null && l.asking_price !== undefined
+                      ? `${Math.round(l.asking_price).toLocaleString("en-US")}`
+                      : "—"}
+                  </td>
+                  <td className="py-2 pr-3 text-gray-400">
+                    {l.next_action ? (
+                      <span className="block max-w-[160px] truncate" title={l.next_action}>
+                        {l.next_action}
+                      </span>
+                    ) : (
+                      "—"
+                    )}
                   </td>
                   <td className="py-2 pr-3 text-gray-400">{l.property_zip}</td>
                   <td className="py-2 pr-3">
@@ -305,6 +327,10 @@ function Next25Panel({ payload }: { payload: Next25Payload }) {
         Ordered by priority rank, then score, contactability, equity and foreclosure urgency — real
         PropStream-adapted scores from the database (HOT requires a 9+ score with usable contact
         info, so it fills in as skip tracing lands).
+      </p>
+      <p className="mt-1 text-[11px] text-gray-600">
+        Asking price and next action are read-only seller-pipeline fields (PH1-B8) — edit them in the
+        CRM lead modal, where every save is audited.
       </p>
     </div>
   );

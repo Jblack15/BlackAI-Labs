@@ -183,6 +183,9 @@ export interface Next25Lead {
   contactable: boolean;
   outreach_status: string;
   apn: string | null;
+  asking_price: number | null;
+  desired_close: string | null;
+  next_action: string | null;
   score_factors: {
     estimated_mao?: number | null;
     equity?: number | null;
@@ -253,7 +256,7 @@ export async function next25ToWork(): Promise<Next25Lead[]> {
   const rows = (await sql`
     SELECT id, full_name, property_address, property_city, property_state,
            property_zip, score, priority_queue, contactable, outreach_status,
-           apn, score_factors
+           apn, asking_price, desired_close, next_action, score_factors
     FROM leads
     WHERE priority_queue IS NOT NULL AND priority_queue <> 'DEAD'
     ORDER BY
@@ -277,6 +280,9 @@ export async function next25ToWork(): Promise<Next25Lead[]> {
     contactable: boolean;
     outreach_status: string | null;
     apn: string | null;
+    asking_price: string | number | null;
+    desired_close: Date | string | null;
+    next_action: string | null;
     score_factors: Record<string, unknown> | null;
   }>;
   return rows.map((r) => ({
@@ -291,6 +297,9 @@ export async function next25ToWork(): Promise<Next25Lead[]> {
     contactable: r.contactable,
     outreach_status: r.outreach_status || "new",
     apn: r.apn,
+    asking_price: toNum(r.asking_price),
+    desired_close: r.desired_close ? String(r.desired_close).slice(0, 10) : null,
+    next_action: r.next_action,
     score_factors: {
       estimated_mao: toNum(r.score_factors?.estimated_mao),
       equity: toNum(r.score_factors?.equity),
