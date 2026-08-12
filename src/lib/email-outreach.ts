@@ -9,7 +9,11 @@ import { sql } from "~/db";
 // Every send is logged to `email_logs` (mirror of `sms_logs`).
 // ─────────────────────────────────────────────────────────────────────────────
 
-const SITE_URL = process.env.SITE_URL || "https://6bb790b5d4bbac352680a157949e23cb.ctonew.app";
+// Public business site used in seller-facing email links. Never embed a raw
+// platform URL (owner directive). No email is sent until SITE_URL is set to the
+// real public site — sendEmail refuses to send when it is missing, so a
+// placeholder or internal URL can never reach a seller.
+const SITE_URL = process.env.SITE_URL || "";
 // One-click opt-out destination. Replace with the production unsubscribe handler when available.
 const UNSUBSCRIBE_URL = "mailto:dealforge-properties-8480c335@ctomail.io?subject=Unsubscribe";
 const UNSUBSCRIBE_TEXT = `To unsubscribe, reply STOP or click here: ${UNSUBSCRIBE_URL}`;
@@ -31,19 +35,19 @@ function ctaButton(label: string, url: string): string {
 function emailShell(bodyHtml: string, preview: string): string {
   const unsubscribeHtml = `<p style="margin:16px 0 0;font-size:12px;color:#7c93b5;">To unsubscribe, reply STOP or <a href="${UNSUBSCRIBE_URL}" style="color:#f59e0b;">click here</a>.</p>`;
   return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>DealFlow AI</title></head>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>DealForge Properties</title></head>
 <body style="margin:0;padding:0;background:#0a1628;">
   <div style="display:none;max-height:0;overflow:hidden;">${preview}</div>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0a1628;padding:32px 12px;">
     <tr><td align="center">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#10203a;border-radius:12px;border:1px solid #1e3a5f;">
         <tr><td style="padding:28px 32px 8px;">
-          <p style="margin:0;font-family:Arial,sans-serif;font-size:20px;font-weight:bold;color:#f59e0b;">DealFlow AI</p>
+          <p style="margin:0;font-family:Arial,sans-serif;font-size:20px;font-weight:bold;color:#f59e0b;">DealForge Properties</p>
           <p style="margin:4px 0 0;font-family:Arial,sans-serif;font-size:12px;color:#7c93b5;">Sell Your House Fast For Cash</p>
         </td></tr>
         <tr><td style="padding:16px 32px;font-family:Arial,sans-serif;font-size:15px;line-height:1.65;color:#dbe7f5;">
           ${bodyHtml}
-          <p style="margin:28px 0 0;padding-top:16px;border-top:1px solid #1e3a5f;font-size:12px;color:#7c93b5;">DealFlow AI · San Antonio, TX · <a href="${SITE_URL}" style="color:#f59e0b;">${SITE_URL}</a></p>
+          <p style="margin:28px 0 0;padding-top:16px;border-top:1px solid #1e3a5f;font-size:12px;color:#7c93b5;">DealForge Properties · San Antonio, TX · <a href="${SITE_URL}" style="color:#f59e0b;">${SITE_URL}</a></p>
           ${unsubscribeHtml}
         </td></tr>
       </table>
@@ -66,10 +70,6 @@ function steps(items: string[]): string {
   return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 16px;">${rows}</table>`;
 }
 
-function testimonial(quote: string, author: string): string {
-  return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 14px;border-left:3px solid #f59e0b;background:#0d1a30;border-radius:6px;padding:0;"><tr><td style="padding:12px 16px;font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#c9d8ec;font-style:italic;">“${quote}”<br><strong style="color:#f59e0b;font-style:normal;">— ${author}</strong></td></tr></table>`;
-}
-
 // --- The 5-email drip --------------------------------------------------------
 
 export const EMAIL_SEQUENCE: EmailTemplate[] = [
@@ -80,14 +80,14 @@ export const EMAIL_SEQUENCE: EmailTemplate[] = [
       emailShell(
         block(`Hi ${name},`) +
           block(`Thanks for reaching out about selling <strong>${address}</strong>. We received your request and our team is already reviewing your property details.`) +
-          block(`Here's the short version of how this works: We evaluate your home using our proprietary DealFlow AI system — factoring in location, condition, and comparable sales — then we make you a fair, no-obligation cash offer. You decide if it works for you. No pressure, no games.`) +
+          block(`Here's the short version of how this works: We evaluate your home using our deal analysis process — factoring in location, condition, and comparable sales — then we make you a fair, no-obligation cash offer. You decide if it works for you. No pressure, no games.`) +
           block(`We'll call you shortly to ask a few quick questions about the property. In the meantime, if you want to see how our offer calculator works, you can estimate your offer here:`) +
           ctaButton("Estimate My Offer →", `${SITE_URL}/calculator`) +
-          block(`<em style="color:#7c93b5;">P.S. Have your phone nearby — we typically get back to sellers within 90 minutes of receiving a request.</em>`),
+          block(`<em style="color:#7c93b5;">P.S. Have your phone nearby — we'll be in touch shortly.</em>`),
         `We got your info for ${address}. Here's what happens next.`,
       ),
     text: (name, address) =>
-      `Hi ${name},\n\nThanks for reaching out about selling ${address}. We received your request and our team is already reviewing your property details.\n\nWe evaluate your home using our DealFlow AI system — location, condition, comparable sales — then we make you a fair, no-obligation cash offer. No pressure, no games.\n\nEstimate your offer: ${SITE_URL}/calculator\n\nP.S. Have your phone nearby — we typically get back to sellers within 90 minutes.`,
+      `Hi ${name},\n\nThanks for reaching out about selling ${address}. We received your request and our team is already reviewing your property details.\n\nWe evaluate your home using our deal analysis process — location, condition, comparable sales — then we make you a fair, no-obligation cash offer. No pressure, no games.\n\nEstimate your offer: ${SITE_URL}/calculator\n\nP.S. Have your phone nearby — we'll be in touch shortly.`,
   },
   // Email 2 — day 1
   {
@@ -95,7 +95,7 @@ export const EMAIL_SEQUENCE: EmailTemplate[] = [
     html: (name, address) =>
       emailShell(
         block(`Hi ${name},`) +
-          block(`I wanted to walk you through exactly how DealFlow AI works — because we do things differently than the traditional route.`) +
+          block(`I wanted to walk you through exactly how DealForge Properties works — because we do things differently than the traditional route.`) +
           steps([
             `<strong>Get Your Offer.</strong> We evaluate ${address} and present you a fair cash offer within 24 hours. No waiting weeks for an appraisal.`,
             `<strong>Accept on Your Timeline.</strong> Like the offer? Great. We close in as little as 7 days. Need more time? We can work with your schedule — 14, 21, or even 30 days out.`,
@@ -107,25 +107,22 @@ export const EMAIL_SEQUENCE: EmailTemplate[] = [
         `No repairs. No commissions. No waiting. Just a fair cash offer and a fast close.`,
       ),
     text: (name, address) =>
-      `Hi ${name},\n\nHere's exactly how DealFlow AI works:\n\nStep 1: Get Your Offer. We evaluate ${address} and present a fair cash offer within 24 hours.\nStep 2: Accept on Your Timeline. Close in as little as 7 days — or 14, 21, even 30 days out.\nStep 3: Get Paid. We handle all the paperwork, coordinate the title company, you walk away with cash.\n\nNo repairs, no cleaning, no realtor fees.\n\nGet your offer: ${SITE_URL}/get-offer\n\nP.S. We buy homes in any condition.`,
+      `Hi ${name},\n\nHere's exactly how DealForge Properties works:\n\nStep 1: Get Your Offer. We evaluate ${address} and present a fair cash offer within 24 hours.\nStep 2: Accept on Your Timeline. Close in as little as 7 days — or 14, 21, even 30 days out.\nStep 3: Get Paid. We handle all the paperwork, coordinate the title company, you walk away with cash.\n\nNo repairs, no cleaning, no realtor fees.\n\nGet your offer: ${SITE_URL}/get-offer\n\nP.S. We buy homes in any condition.`,
   },
   // Email 3 — day 3
   {
-    subject: () => `"I wish I'd called them sooner"`,
+    subject: (_, address) => `Just checking in about ${address}`,
     html: (name, address) =>
       emailShell(
         block(`Hi ${name},`) +
-          block(`We know selling a house — especially one that needs work — can feel like a gamble. So here's what a few recent sellers had to say about working with DealFlow AI:`) +
-          testimonial(`I inherited my mom's house and it needed $40K in repairs. I called three agents who all said the same thing — fix it first. DealFlow AI gave me a cash offer the next day and we closed in a week. I didn't lift a finger.`, `Maria T., Phoenix`) +
-          testimonial(`My rental property was trashed by the last tenant and I was done being a landlord. They bought it as-is and I had cash in my account before my next mortgage payment was due.`, `Derek J., Tampa`) +
-          testimonial(`Behind on taxes, facing a lien sale, and honestly panicking. They paid off the taxes, gave me a fair price, and handled everything. I can't recommend them enough.`, `Linda R., Atlanta`) +
-          block(`We'd love to make you our next success story.`) +
+          block(`We know selling a house — especially one that needs work — can feel like a gamble. So here's what we keep simple: we look at the property, run the numbers, and make you a fair, no-obligation cash offer. You decide. No pressure, no games.`) +
+          block(`We're still ready to make you an offer on <strong>${address}</strong>. If you'd like to see what the house is worth to us, just reply to this email or use the link below.`) +
           ctaButton("See My Offer →", `${SITE_URL}/get-offer`) +
-          block(`<em style="color:#7c93b5;">P.S. These are real sellers who closed with us in the last 90 days. Your situation might be different, but our commitment to a fair, fast close is the same every time.</em>`),
-        `Real sellers. Real stories. Fast closings and fair offers.`,
+          block(`<em style="color:#7c93b5;">P.S. We'll share real seller stories here as our deals close. Until then, no hype — just a straight offer when you're ready.</em>`),
+        `Just checking in about ${address}. We're here when you're ready.`,
       ),
-    text: (name) =>
-      `Hi ${name},\n\nHere's what recent sellers said about working with DealFlow AI:\n\n"I inherited my mom's house and it needed $40K in repairs. DealFlow AI gave me a cash offer the next day and we closed in a week." — Maria T., Phoenix\n\n"My rental was trashed by the last tenant. They bought it as-is and I had cash before my next mortgage payment." — Derek J., Tampa\n\n"Behind on taxes and facing a lien sale. They paid off the taxes, gave me a fair price, and handled everything." — Linda R., Atlanta\n\nWe'd love to make you our next success story.\n\nSee your offer: ${SITE_URL}/get-offer\n\nP.S. Real sellers, closed in the last 90 days.`,
+    text: (name, address) =>
+      `Hi ${name},\n\nWe know selling a house — especially one that needs work — can feel like a gamble. That's why we keep it simple: we look at the property, run the numbers, and make you a fair, no-obligation cash offer. You decide.\n\nWe're still ready to make you an offer on ${address}. Reply to this email or use the link below.\n\nSee your offer: ${SITE_URL}/get-offer\n\nP.S. We'll share real seller stories here as our deals close. Until then, no hype — just a straight offer.`,
   },
   // Email 4 — day 5
   {
@@ -225,6 +222,12 @@ export async function sendEmail(opts: {
   const host = process.env.SMTP_HOST;
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
+  // Never send an email whose links would point at a placeholder or internal
+  // URL. SITE_URL must be the real public business site before any send.
+  if (!SITE_URL) {
+    await logEmail({ leadId: opts.leadId, to: opts.to, subject: opts.subject, body: opts.html, status: "failed", error: "SITE_URL not configured" });
+    return { success: false, error: "SITE_URL not configured — email not sent (set SITE_URL to the public business site)" };
+  }
   // Bulk email is restricted to verified/consented contacts (form submitters),
   // never every lead merely because a record contains an email address.
   if (!host || !user || !pass) {
@@ -240,7 +243,7 @@ export async function sendEmail(opts: {
       secure: port === 465,
       auth: { user, pass },
     });
-    const from = process.env.EMAIL_FROM || "DealFlow AI <dealforge-properties-8480c335@ctomail.io>";
+    const from = process.env.EMAIL_FROM || "DealForge Properties <dealforge-properties-8480c335@ctomail.io>";
     const info = await transport.sendMail({
       from,
       to: opts.to,

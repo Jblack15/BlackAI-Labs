@@ -7,7 +7,7 @@ export function Footer() {
         <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
           <div>
             <Link to="/" className="text-lg font-bold text-white">
-              DealFlow<span className="text-gold-500">AI</span>
+              DealForge <span className="text-gold-500">Properties</span>
             </Link>
             <p className="mt-3 text-sm text-gray-400">
               Technology-driven real estate solutions. We help homeowners sell fast for cash — no repairs, no agents, no fees.
@@ -93,7 +93,7 @@ export function Footer() {
           </div>
         </div>
         <div className="mt-10 border-t border-navy-700 pt-6 text-center text-sm text-gray-500">
-          &copy; {new Date().getFullYear()} DealFlow AI. All rights reserved.
+          &copy; {new Date().getFullYear()} DealForge Properties. All rights reserved.
         </div>
       </div>
     </footer>

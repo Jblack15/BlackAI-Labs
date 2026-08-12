@@ -57,8 +57,8 @@ export const Route = createFileRoute("/crm_/import")({
   component: ImportPage,
   head: () => ({
     meta: [
-      { title: "Import Leads — DealFlow AI CRM" },
-      { name: "description", content: "Import seller leads from a CSV file into the DealFlow AI CRM." },
+      { title: "Import Leads — DealForge Properties CRM" },
+      { name: "description", content: "Import seller leads from a CSV file into the DealForge Properties CRM." },
     ],
   }),
 });

@@ -1471,10 +1471,10 @@ export const Route = createFileRoute("/buyers")({
   component: BuyersPage,
   head: () => ({
     meta: [
-      { title: "Cash Buyers — DealFlow AI" },
+      { title: "Cash Buyers — DealForge Properties" },
       {
         name: "description",
-        content: "Manage cash buyers and match deals with DealFlow AI's buyer network.",
+        content: "Manage cash buyers and match deals with DealForge Properties's buyer network.",
       },
     ],
   }),

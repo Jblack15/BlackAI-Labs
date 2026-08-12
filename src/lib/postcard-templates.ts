@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// DealFlow AI — Click2Mail postcard templates.
+// DealForge Properties — Click2Mail postcard templates.
 //
 // Four campaigns, each a 6×9 postcard (front = message, back = steps + mailing
 // address block). Adapted from the designer's direct-mail-postcard.html brand
@@ -33,8 +33,11 @@ const GOLD = "#C8A951";
 const GOLD_DARK = "#A8862F";
 const TEXT = "#E2E8F0";
 const MUTED = "#94A3B8";
-const PHONE = "(210) 555-0199";
-const WEBSITE = "dealflowai.com";
+// Placeholders — the real business phone and website must be configured by the
+// operator before any postcard is printed. Never hardcode an unverified number
+// or domain.
+const PHONE = "[PHONE]";
+const WEBSITE = "[WEBSITE]";
 
 /** Brand header used on the front of every template. */
 function frontHeader(badge: string): string {
@@ -42,7 +45,7 @@ function frontHeader(badge: string): string {
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;">
       <div style="display:flex;align-items:center;gap:10px;">
         <div style="width:40px;height:40px;border-radius:8px;background:linear-gradient(135deg,${GOLD},#E6C86E);display:flex;align-items:center;justify-content:center;font-family:Arial,sans-serif;font-weight:800;font-size:16px;color:${NAVY};">DF</div>
-        <div style="font-family:Arial,sans-serif;font-size:19px;font-weight:700;color:#FFFFFF;">Deal<span style="color:${GOLD};">Flow</span> AI</div>
+        <div style="font-family:Arial,sans-serif;font-size:19px;font-weight:700;color:#FFFFFF;">Deal<span style="color:${GOLD};">Forge</span> Properties</div>
       </div>
       <div style="background:rgba(200,169,81,0.15);border:1px solid rgba(200,169,81,0.35);border-radius:6px;padding:5px 12px;font-family:Arial,sans-serif;font-size:12px;font-weight:600;color:${GOLD};text-transform:uppercase;letter-spacing:0.5px;">${badge}</div>
     </div>`;
@@ -90,7 +93,7 @@ function backPanel(steps: { num: string; title: string; body: string }[]): strin
   return `
     <div style="width:6in;height:4.5in;background:#F8FAFC;border-radius:4px;box-sizing:border-box;padding:30px 40px;font-family:Arial,sans-serif;position:relative;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:22px;">
-        <div style="font-size:20px;font-weight:700;color:${NAVY};">Deal<span style="color:${GOLD_DARK};">Flow</span> AI</div>
+        <div style="font-size:20px;font-weight:700;color:${NAVY};">Deal<span style="color:${GOLD_DARK};">Forge</span> Properties</div>
         <div style="background:${NAVY};color:${GOLD};border-radius:6px;padding:4px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;">How It Works</div>
       </div>
       <div style="display:flex;gap:14px;margin-right:220px;">
@@ -107,9 +110,9 @@ function backPanel(steps: { num: string; title: string; body: string }[]): strin
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;margin-right:220px;">
         <div style="display:flex;gap:14px;">
-          <span style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#334155;">✓ BBB A+ Rated</span>
-          <span style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#334155;">✓ 100+ Homes Bought</span>
           <span style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#334155;">✓ San Antonio Local</span>
+          <span style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#334155;">✓ As-Is Cash Offers</span>
+          <span style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#334155;">✓ No Obligation</span>
         </div>
         <div style="text-align:right;">
           <div style="font-size:17px;font-weight:700;color:${NAVY};">${PHONE}</div>

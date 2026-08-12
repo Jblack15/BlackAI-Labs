@@ -31,7 +31,7 @@ export const Route = createRootRoute({
       { property: "og:image", content: OG_IMAGE },
       { property: "og:type", content: "website" },
       { property: "og:url", content: SITE_URL },
-      { property: "og:site_name", content: "DealFlow AI" },
+      { property: "og:site_name", content: "DealForge Properties" },
       { property: "og:locale", content: "en_US" },
 
       // Twitter Card

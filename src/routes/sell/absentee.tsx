@@ -13,7 +13,7 @@ const content: SellerLandingProps = {
     "Ready to cash out without traveling back to handle the sale",
   ],
   description:
-    "Owning property from a distance comes with unique challenges — difficult tenants, unreliable property managers, and the constant worry of what's happening to your investment. DealFlow AI buys absentee-owned properties for cash, letting you exit on your terms.",
+    "Owning property from a distance comes with unique challenges — difficult tenants, unreliable property managers, and the constant worry of what's happening to your investment. DealForge Properties buys absentee-owned properties for cash, letting you exit on your terms.",
   whyDealFlow:
     "As an absentee owner, you face challenges that local owners don't. You rely on property managers who may or may not be doing their job. You can't easily check on the property. And when problems arise, you're stuck dealing with them from hundreds or thousands of miles away.\n\nWe make it easy to sell from anywhere. Our process is entirely remote-friendly — we can evaluate your property, make an offer, and close without you ever needing to travel. We buy properties in any condition, with or without tenants.\n\nFree yourself from the burden of long-distance ownership. Get a fair cash offer today.",
   sellerType: "absentee",
@@ -22,7 +22,7 @@ const content: SellerLandingProps = {
 export const Route = createFileRoute("/sell/absentee")({
   head: () => ({
     meta: [
-      { title: "Absentee Owner? Sell From Anywhere — DealFlow AI" },
+      { title: "Absentee Owner? Sell From Anywhere — DealForge Properties" },
       {
         name: "description",
         content:

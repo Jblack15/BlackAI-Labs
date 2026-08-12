@@ -41,16 +41,8 @@ const submitPpcLead = createServerFn({ method: "POST" })
           INSERT INTO notifications (type, title, body, lead_id)
           VALUES ('new_lead', ${'PPC Lead: ' + lead.full_name}, ${lead.full_name + ' — ' + lead.property_address}, ${lead.id})
         `;
-
-        // Auto-SMS: send confirmation if phone provided
-        if (lead.phone) {
-          const { sendSms } = await import("~/lib/sms");
-          await sendSms(
-            lead.phone,
-            `Hi ${lead.full_name}, thanks for reaching out to DealFlow AI! We received your property details for ${lead.property_address} and will send you a cash offer within 24 hours. Reply STOP to opt out.`,
-            lead.id,
-          );
-        }
+        // NOTE: no auto-SMS — the SMS channel was discontinued by the owner on
+        // 2026-08-12 (Twilio dropped). Follow-up is by phone/email only.
       }
       return { success: true as const };
     } catch {
@@ -61,7 +53,7 @@ const submitPpcLead = createServerFn({ method: "POST" })
 export const Route = createFileRoute("/sell-fast")({
   head: () => ({
     meta: [
-      { title: "Get a Cash Offer for Your House in 24 Hours — DealFlow AI" },
+      { title: "Get a Cash Offer for Your House in 24 Hours — DealForge Properties" },
       {
         name: "description",
         content:
@@ -131,7 +123,7 @@ function SellFastPage() {
             We received your request. Our team will review your property and get back to you with a cash offer within 24 hours.
           </p>
           <p className="mt-6 text-sm text-gray-500">
-            Have questions? Call us at <span className="text-gold-400">(555) 123-4567</span>
+            We'll contact you by phone or email — SMS messaging is not available at this time.
           </p>
         </div>
       </div>
@@ -140,15 +132,12 @@ function SellFastPage() {
 
   return (
     <div className="min-h-dvh bg-navy-900">
-      {/* Mini Header — Logo + Phone */}
+      {/* Mini Header — Logo */}
       <div className="border-b border-navy-700 bg-navy-800/95 px-4 py-4">
         <div className="mx-auto flex max-w-2xl items-center justify-between">
           <span className="text-lg font-bold text-white">
-            DealFlow<span className="text-gold-500">AI</span>
+            DealForge <span className="text-gold-500">Properties</span>
           </span>
-          <a href="tel:+15551234567" className="text-sm font-medium text-gold-400 hover:text-gold-300">
-            📞 (555) 123-4567
-          </a>
         </div>
       </div>
 
@@ -170,7 +159,6 @@ function SellFastPage() {
               "Sell as-is — we buy homes in any condition",
               "Zero commissions or hidden fees",
               "Fair, data-driven cash offer with no obligation",
-              "100+ homes purchased in Texas",
             ].map((benefit, i) => (
               <div key={i} className="flex items-start gap-3">
                 <svg className="mt-0.5 h-5 w-5 shrink-0 text-gold-500" fill="currentColor" viewBox="0 0 20 20">
@@ -270,32 +258,38 @@ function SellFastPage() {
             <p className="mt-4 text-center text-xs text-gray-500">
               No obligation. 100% free offer. We respect your privacy.
             </p>
+            <p className="mt-2 text-center text-xs text-amber-400/90">
+              We respond by phone or email — SMS messaging is not available at this time.
+            </p>
           </div>
 
-          {/* Trust Badges */}
+          {/* Trust Badges — only claims we can verify */}
           <div className="mt-8 flex flex-wrap items-center justify-center gap-6 text-sm text-gray-500">
             <div className="flex items-center gap-2">
-              <span className="rounded bg-gold-500/10 px-2 py-0.5 text-xs font-semibold text-gold-500">BBB</span>
-              <span>A+ Rated</span>
+              <svg className="h-4 w-4 text-gold-500" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
+                <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
+              </svg>
+              <span>San Antonio Local</span>
             </div>
             <div className="flex items-center gap-2">
               <svg className="h-4 w-4 text-gold-500" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
               </svg>
-              <span>100+ Homes Purchased</span>
+              <span>As-Is Cash Offers</span>
             </div>
             <div className="flex items-center gap-2">
               <svg className="h-4 w-4 text-gold-500" fill="currentColor" viewBox="0 0 20 20">
                 <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
                 <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
               </svg>
-              <span>Fair Cash Offers</span>
+              <span>No Obligation</span>
             </div>
           </div>
 
           {/* Footer note */}
           <p className="mt-10 text-center text-xs text-gray-600">
-            &copy; {new Date().getFullYear()} DealFlow AI. All rights reserved.
+            &copy; {new Date().getFullYear()} DealForge Properties. All rights reserved.
           </p>
         </div>
       </div>

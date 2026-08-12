@@ -3,10 +3,10 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 export const Route = createFileRoute("/thank-you")({
   head: () => ({
     meta: [
-      { title: "Thank You — DealFlow AI" },
+      { title: "Thank You — DealForge Properties" },
       {
         name: "description",
-        content: "Your information has been received. A DealFlow AI representative will contact you within 24 hours.",
+        content: "Your information has been received. A DealForge Properties representative will contact you within 24 hours.",
       },
     ],
   }),
@@ -38,7 +38,7 @@ function ThankYou() {
           Thank You!
         </h1>
         <p className="mt-4 text-lg text-gray-300">
-          We received your information. A DealFlow AI representative will contact you
+          We received your information. A DealForge Properties representative will contact you
           within <span className="font-semibold text-gold-500">24 hours</span> with a cash offer.
         </p>
 
@@ -49,7 +49,7 @@ function ThankYou() {
           </h2>
           <ul className="mt-4 space-y-3">
             {[
-              "A DealFlow AI specialist will review your submission.",
+              "A DealForge Properties specialist will review your submission.",
               "We may reach out for a quick phone call to confirm property details.",
               "You'll receive a no-obligation cash offer — usually within 24 hours.",
               "If you accept, we can close in as little as 7 days.",

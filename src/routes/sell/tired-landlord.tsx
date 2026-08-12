@@ -13,7 +13,7 @@ const content: SellerLandingProps = {
     "Property needs major repairs before you can get new tenants",
   ],
   description:
-    "Being a landlord isn't passive income — it's a job. If you're tired of dealing with difficult tenants, constant repairs, and property management headaches, DealFlow AI can help you exit. We buy rental properties with or without tenants, as-is, for cash.",
+    "Being a landlord isn't passive income — it's a job. If you're tired of dealing with difficult tenants, constant repairs, and property management headaches, DealForge Properties can help you exit. We buy rental properties with or without tenants, as-is, for cash.",
   whyDealFlow:
     "We understand landlord burnout. What started as a great investment can turn into a second job filled with stress. Between tenant turnover, evictions, maintenance emergencies, and property management drama, you might be ready to move on.\n\nWe buy rental properties in any condition — occupied or vacant. If you have difficult tenants, we'll handle the transition after closing. You don't need to evict anyone, make repairs, or even clean the place. We take it off your hands and put cash in your pocket.\n\nReclaim your time and peace of mind. Get a cash offer for your rental property today.",
   sellerType: "tired-landlord",
@@ -22,7 +22,7 @@ const content: SellerLandingProps = {
 export const Route = createFileRoute("/sell/tired-landlord")({
   head: () => ({
     meta: [
-      { title: "Tired Landlord? Sell Your Rental — DealFlow AI" },
+      { title: "Tired Landlord? Sell Your Rental — DealForge Properties" },
       {
         name: "description",
         content:

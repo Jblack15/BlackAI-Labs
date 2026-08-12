@@ -187,14 +187,14 @@ export async function evaluateAutomations(leadId: string): Promise<AutomationRes
       } else if (auto.action_type === "notify") {
         const cfg = (auto.action_config ?? {}) as { title?: string; message?: string; type?: string };
         await sql`
-          INSERT INTO notifications (lead_id, type, title, message)
+          INSERT INTO notifications (lead_id, type, title, body)
           VALUES (${leadId}, ${cfg.type ?? "auto"}, ${cfg.title ?? `Stage: ${stage}`}, ${cfg.message ?? `Automation triggered at stage ${stage}.`})
         `;
         results.push({ action_type: "notify", executed: true });
       } else if (auto.action_type === "create_task") {
         const cfg = (auto.action_config ?? {}) as { title?: string; message?: string };
         await sql`
-          INSERT INTO notifications (lead_id, type, title, message)
+          INSERT INTO notifications (lead_id, type, title, body)
           VALUES (${leadId}, 'task', ${cfg.title ?? `Follow up: ${stage}`}, ${cfg.message ?? "Automation-created task."})
         `;
         results.push({ action_type: "create_task", executed: true });

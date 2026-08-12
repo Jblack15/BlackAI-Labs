@@ -1,7 +1,7 @@
 import { sql } from "~/db";
 import { sendSms } from "~/lib/sms";
 export const SMS_SEQUENCE=[
-  (name:string,address:string)=>`Hi ${name}, this is DealFlow AI. We’re reaching out about ${address}. Would you be open to a quick conversation about a cash offer? Reply STOP to opt out.`,
+  (name:string,address:string)=>`Hi ${name}, this is DealForge Properties. We’re reaching out about ${address}. Would you be open to a quick conversation about a cash offer? Reply STOP to opt out.`,
   (name:string,address:string)=>`Hi ${name}, just following up about ${address}. If selling is on your mind, we can provide a no-obligation cash offer. Reply STOP to opt out.`,
   (name:string,address:string)=>`Hi ${name}, this is our last follow-up about ${address}. If now isn’t the right time, no problem. Reply STOP to opt out.`
 ];

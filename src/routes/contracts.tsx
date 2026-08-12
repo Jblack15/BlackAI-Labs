@@ -73,72 +73,6 @@ const STAGE_LABELS: Record<string, string> = {
   contract: "Contract Signed",
 };
 
-// --- Mock Data ---
-const MOCK_LEADS: Lead[] = [
-  {
-    id: "6", full_name: "Linda Thompson", email: "linda.t@email.com", phone: "(817) 555-0606",
-    property_address: "333 Birch Street", property_city: "Fort Worth", property_state: "TX",
-    property_zip: "76102", property_type: "Single Family", property_condition: "Poor",
-    estimated_repairs: "40,000 - 60,000", reason_for_selling: "Code violations, cannot afford repairs",
-    desired_timeline: "ASAP", mortgage_status: "Paid off",
-    notes: "City issued 5 code violations. Needs major work. Owner on fixed income.",
-    lead_source: "code-violations", status: "appointment", created_at: "2026-07-25T08:30:00Z",
-  },
-  {
-    id: "7", full_name: "Michael Davis", email: "mike.d@email.com", phone: "(469) 555-0707",
-    property_address: "612 Cedar Court", property_city: "Plano", property_state: "TX",
-    property_zip: "75023", property_type: "Single Family", property_condition: "Good",
-    estimated_repairs: "5,000 - 10,000", reason_for_selling: "Divorce, need to liquidate",
-    desired_timeline: "30 days", mortgage_status: "Current",
-    notes: "Both parties want quick sale. ARV $420k, offered $340k.",
-    lead_source: "divorce", status: "offer", created_at: "2026-07-22T13:15:00Z",
-  },
-  {
-    id: "8", full_name: "Sarah Johnson", email: "sarah.j@email.com", phone: "(972) 555-0808",
-    property_address: "1890 Walnut Way", property_city: "Arlington", property_state: "TX",
-    property_zip: "76010", property_type: "Single Family", property_condition: "Average",
-    estimated_repairs: "12,000 - 18,000", reason_for_selling: "Vacant property, tired of paying taxes",
-    desired_timeline: "ASAP", mortgage_status: "Paid off",
-    notes: "Contract signed 7/21. Assignment fee $18,500. Buyer: CashFlow REI LLC.",
-    lead_source: "vacant", status: "contract", created_at: "2026-07-15T09:00:00Z",
-  },
-];
-
-const MOCK_BUYERS: Buyer[] = [
-  { id: "1", name: "CashFlow REI LLC", email: "deals@cashflowrei.com", phone: "(512) 555-1001",
-    preferredCities: ["Austin", "Round Rock", "Georgetown"], preferredZips: ["78701", "78664"],
-    maxPurchasePrice: 400000, propertyTypes: ["SFR", "Multi-Family"], minBedrooms: 2, minBaths: 1,
-    desiredROI: 15, notes: "Preferred buyer — quick closings", createdAt: "2026-07-15" },
-  { id: "2", name: "Lone Star Investments", email: "info@lonestarinv.com", phone: "(214) 555-1002",
-    preferredCities: ["Dallas", "Fort Worth", "Arlington"], preferredZips: [],
-    maxPurchasePrice: 350000, propertyTypes: ["SFR"], minBedrooms: 3, minBaths: 2,
-    desiredROI: 12, notes: "Prefers North Dallas area", createdAt: "2026-07-16" },
-  { id: "3", name: "Texan Dream Homes", email: "buy@texandreamhomes.com", phone: "(713) 555-1003",
-    preferredCities: ["Houston", "Katy"], preferredZips: ["77002", "77449"],
-    maxPurchasePrice: 500000, propertyTypes: ["SFR", "Townhouse", "Condo"], minBedrooms: 2, minBaths: 2,
-    desiredROI: 10, notes: "Buy-and-hold investor", createdAt: "2026-07-17" },
-  { id: "4", name: "Capital Flip Group", email: "flips@capitalflip.com", phone: "(210) 555-1004",
-    preferredCities: ["San Antonio", "Austin"], preferredZips: [],
-    maxPurchasePrice: 300000, propertyTypes: ["SFR", "Townhouse"], minBedrooms: 2, minBaths: 1,
-    desiredROI: 20, notes: "Fast closer, all cash", createdAt: "2026-07-18" },
-  { id: "5", name: "Premier Property Solutions", email: "deals@premierpropsol.com", phone: "(512) 555-1005",
-    preferredCities: ["Austin", "Dallas", "Houston"], preferredZips: [],
-    maxPurchasePrice: 600000, propertyTypes: ["SFR", "Multi-Family", "Commercial"], minBedrooms: 2, minBaths: 1,
-    desiredROI: 14, notes: "Institutional buyer — large portfolio", createdAt: "2026-07-19" },
-  { id: "6", name: "Texas Rehab Specialists", email: "offers@txrehab.com", phone: "(817) 555-1006",
-    preferredCities: ["Fort Worth", "Arlington"], preferredZips: [],
-    maxPurchasePrice: 250000, propertyTypes: ["SFR"], minBedrooms: 2, minBaths: 1,
-    desiredROI: 18, notes: "Does own rehab work", createdAt: "2026-07-20" },
-  { id: "7", name: "Hill Country Holdings", email: "buy@hillcountryholdings.com", phone: "(830) 555-1007",
-    preferredCities: ["Georgetown", "Round Rock", "Kyle"], preferredZips: [],
-    maxPurchasePrice: 450000, propertyTypes: ["SFR", "Land"], minBedrooms: 3, minBaths: 2,
-    desiredROI: 11, notes: "Looking for suburban properties", createdAt: "2026-07-21" },
-  { id: "8", name: "Metroplex Acquisitions", email: "metro@metroplexacq.com", phone: "(469) 555-1008",
-    preferredCities: ["Dallas", "Plano", "Richardson"], preferredZips: [],
-    maxPurchasePrice: 500000, propertyTypes: ["SFR", "Townhouse", "Condo"], minBedrooms: 2, minBaths: 2,
-    desiredROI: 13, notes: "Quick due diligence", createdAt: "2026-07-22" },
-];
-
 // --- Helpers ---
 function rowToBuyer(row: BuyerRow): Buyer {
   const c = row.buying_criteria || {};
@@ -174,9 +108,10 @@ const fetchContractLeads = createServerFn({ method: "GET" }).handler(async () =>
       WHERE status IN ('appointment', 'offer', 'contract')
       ORDER BY created_at DESC
     `) as Lead[];
-    return rows.map((r) => ({ ...r, created_at: String(r.created_at) }));
+    return { leads: rows.map((r) => ({ ...r, created_at: String(r.created_at) })), dbUnavailable: false };
   } catch {
-    return MOCK_LEADS;
+    // DB unreachable: honest empty state (no fabricated leads).
+    return { leads: [], dbUnavailable: true };
   }
 });
 
@@ -188,9 +123,10 @@ const fetchBuyersForContracts = createServerFn({ method: "GET" }).handler(async 
       FROM buyers
       ORDER BY name ASC
     `) as BuyerRow[];
-    return rows.map(rowToBuyer);
+    return { buyers: rows.map(rowToBuyer), dbUnavailable: false };
   } catch {
-    return MOCK_BUYERS;
+    // DB unreachable: honest empty state (no fabricated buyers).
+    return { buyers: [], dbUnavailable: true };
   }
 });
 
@@ -251,14 +187,15 @@ function defaultFormData(): ContractFormData {
 // --- Components ---
 
 function ContractsPage() {
-  const [leads, setLeads] = useState<Lead[]>(MOCK_LEADS);
-  const [buyers, setBuyers] = useState<Buyer[]>(MOCK_BUYERS);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [buyers, setBuyers] = useState<Buyer[]>([]);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [contractType, setContractType] = useState<ContractType>("purchase");
   const [selectedBuyer, setSelectedBuyer] = useState<string>("");
   const [formData, setFormData] = useState<ContractFormData>(defaultFormData());
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [loading, setLoading] = useState(true);
+  const [dbUnavailable, setDbUnavailable] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -267,9 +204,11 @@ function ContractsPage() {
       fetchBuyersForContracts(),
     ]).then(([leadData, buyerData]) => {
       if (cancelled) return;
-      if (leadData && leadData.length > 0) setLeads(leadData);
-      if (buyerData && buyerData.length > 0) setBuyers(buyerData);
-    }).catch(() => {}).finally(() => {
+      if (leadData) { setLeads(leadData.leads); if (leadData.dbUnavailable) setDbUnavailable(true); }
+      if (buyerData) { setBuyers(buyerData.buyers); if (buyerData.dbUnavailable) setDbUnavailable(true); }
+    }).catch(() => {
+      if (!cancelled) setDbUnavailable(true);
+    }).finally(() => {
       if (!cancelled) setLoading(false);
     });
     return () => { cancelled = true; };
@@ -338,9 +277,20 @@ function ContractsPage() {
     <div className="min-h-dvh flex flex-col">
       {/* Print-only header */}
       <div className="hidden print:block print:mb-6 print:text-center">
-        <h1 className="text-xl font-bold">DealFlow AI</h1>
+        <h1 className="text-xl font-bold">DealForge Properties</h1>
         <p className="text-sm text-gray-600">Technology-Driven Real Estate Solutions</p>
       </div>
+
+      {/* Database unreachable — never show fabricated data */}
+      {dbUnavailable && (
+        <div className="mx-auto mt-6 max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
+            ⚠️ Data unavailable — NOT CONNECTED (live database unreachable). No
+            contract-ready leads or buyers are shown rather than displaying
+            placeholder information.
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-1 flex-col lg:flex-row">
         {/* Sidebar */}
@@ -595,7 +545,7 @@ function PurchaseAgreement({
         <p>
           <strong>1. Parties.</strong> This Agreement is between{" "}
           <strong>{lead.full_name}</strong> ("Seller"), whose property address is{" "}
-          {fullAddress}, and <strong>DealFlow AI or Assigns</strong> ("Buyer").
+          {fullAddress}, and <strong>DealForge Properties or Assigns</strong> ("Buyer").
         </p>
 
         <p>
@@ -684,7 +634,7 @@ function PurchaseAgreement({
 
         <div>
           <p className="font-bold">BUYER:</p>
-          <p className="mt-1">DealFlow AI or Assigns</p>
+          <p className="mt-1">DealForge Properties or Assigns</p>
           <p className="mt-1">________________________________</p>
           <p className="text-xs text-gray-600">Authorized Representative</p>
           <p className="mt-4">Date: _______________</p>
@@ -717,7 +667,7 @@ function AssignmentContract({
       <div className="border-t border-b border-gray-300 py-3 space-y-2">
         <p>
           <strong>1. Parties.</strong> This Assignment Agreement is made by and between{" "}
-          <strong>DealFlow AI</strong> ("Assignor") and{" "}
+          <strong>DealForge Properties</strong> ("Assignor") and{" "}
           <strong>{assigneeName || "_______________"}</strong> ("Assignee").
         </p>
 
@@ -776,7 +726,7 @@ function AssignmentContract({
       <div className="mt-8 space-y-8">
         <div>
           <p className="font-bold">ASSIGNOR:</p>
-          <p className="mt-1">DealFlow AI</p>
+          <p className="mt-1">DealForge Properties</p>
           <p className="mt-1">________________________________</p>
           <p className="text-xs text-gray-600">Authorized Representative</p>
           <p className="mt-4">Date: _______________</p>
@@ -804,7 +754,7 @@ export const Route = createFileRoute("/contracts")({
   component: ContractsPage,
   head: () => ({
     meta: [
-      { title: "Contracts — DealFlow AI" },
+      { title: "Contracts — DealForge Properties" },
       { name: "description", content: "Generate and manage real estate purchase and assignment contracts." },
     ],
   }),
