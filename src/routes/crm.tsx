@@ -32,7 +32,7 @@ interface Lead {
   pipeline_stage: string; // canonical pipeline stage (pipeline_stages table)
   time_in_stage?: string; // humanized time since the lead entered its current stage
   created_at: string;
-  score?: number;
+  score: number | null; // REAL PropStream-adapted score (0-10) from the DB — NULL = unscored (PH1-B7)
   trace_status: string; // NOT_TRACED / IN_PROGRESS / TRACED / STALLED / FAILED / MANUAL
   trace_source: string | null;
   traced_at: string | null;
@@ -40,6 +40,14 @@ interface Lead {
   contactable: boolean;
   outreach_status: string; // contact pipeline (PH1-B6) — new/contactable/.../dead_lead
   outreach_status_updated_at: string | null;
+  apn: string | null; // Assessor Parcel Number (imported with the score, PH1-B7)
+  priority_queue: string | null; // HOT/HIGH/MEDIUM/LOW/DEAD — DB source of truth (PH1-B7)
+  priority_updated_at: string | null;
+  score_factors: {
+    estimated_mao?: number | null;
+    equity?: number | null;
+    foreclosure_factor?: string | null;
+  } | null;
 }
 
 interface PipelineStageInfo {
@@ -125,14 +133,6 @@ function stageColor(color: string | null | undefined): string {
   return (color && STAGE_COLOR_CLASSES[color]) || STAGE_COLOR_CLASSES.slate;
 }
 
-// Rank of each stage used for lead scoring (higher stage = warmer lead).
-const STAGE_RANK: Record<string, number> = {
-  new_lead: 0, property_enrichment: 1, ai_qualification: 2, seller_contacted: 3,
-  follow_up: 4, deal_analysis: 5, offer_recommendation: 6, human_approval: 7,
-  offer_sent: 8, negotiation: 9, contract_prepared: 10, contract_sent: 11,
-  contract_signed: 12, buyer_matching: 13, buyer_contacted: 14, assignment: 15,
-  closing: 16, closed_won: 17, closed_lost: 18,
-};
 
 const SOURCE_LABELS: Record<string, string> = {
   "tax-delinquent": "Tax Delinquent",
@@ -197,6 +197,7 @@ const fetchLeads = createServerFn({ method: "GET" }).handler(async () => {
         l.trace_source, l.traced_at, l.dnc_flag, l.contactable,
         COALESCE(NULLIF(l.outreach_status, ''), 'new') AS outreach_status,
         l.outreach_status_updated_at,
+        l.apn, l.score, l.priority_queue, l.priority_updated_at, l.score_factors,
         COALESCE(pe.entered_at, l.created_at) AS stage_entered_at
       FROM leads l
       LEFT JOIN LATERAL (
@@ -214,7 +215,7 @@ const fetchLeads = createServerFn({ method: "GET" }).handler(async () => {
         created_at: String(r.created_at),
         pipeline_stage: r.pipeline_stage || "new_lead",
         time_in_stage: humanizeDuration(Date.now() - new Date(r.stage_entered_at).getTime()),
-        score: leadScore(r),
+        score: r.score === null || r.score === undefined ? null : Number(r.score),
       })),
       dbUnavailable: false,
     };
@@ -556,10 +557,6 @@ function humanizeDuration(ms: number): string {
   return `${Math.floor(months / 12)}y`;
 }
 
-function leadScore(lead: Pick<Lead, "lead_source" | "status" | "pipeline_stage" | "phone" | "email">): number {
-  const stage = lead.pipeline_stage || lead.status;
-  return Math.min(100, (lead.phone ? 20 : 0) + (lead.email ? 10 : 0) + (["tax-delinquent", "pre-foreclosure", "code-violations"].includes(lead.lead_source) ? 45 : 25) + ((STAGE_RANK[stage] ?? 0) * 1.5));
-}
 function getSourceLabel(source: string): string {
   return SOURCE_LABELS[source] ?? source;
 }
@@ -597,6 +594,38 @@ function ContactableDot({ contactable }: { contactable: boolean }) {
     <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" title="Contactable — has valid contact info" />
   ) : (
     <span className="inline-block h-1.5 w-1.5 rounded-full bg-slate-600" title="Not contactable — no usable contact info" />
+  );
+}
+// --- Priority queue badge (PH1-B7) — the DB (leads.priority_queue) is the
+// source of truth; score is the REAL PropStream-adapted score (0-10). ---
+const PRIORITY_BADGE_CLASSES: Record<string, string> = {
+  HOT: "bg-red-500/20 text-red-300 border-red-500/40",
+  HIGH: "bg-orange-500/20 text-orange-300 border-orange-500/40",
+  MEDIUM: "bg-gold-500/20 text-gold-300 border-gold-500/40",
+  LOW: "bg-slate-500/20 text-slate-300 border-slate-500/30",
+  DEAD: "bg-gray-600/20 text-gray-500 border-gray-600/30",
+};
+function PriorityBadge({ lead }: { lead: { priority_queue: string | null; score: number | null } }) {
+  const queue = lead.priority_queue;
+  if (!queue) {
+    return (
+      <span
+        className="inline-block rounded-full border border-gray-600/30 bg-gray-600/10 px-2 py-0.5 text-[10px] font-medium text-gray-500"
+        title="No PropStream score — queued on available factors only"
+      >
+        UNSCORED
+      </span>
+    );
+  }
+  const cls = PRIORITY_BADGE_CLASSES[queue] || PRIORITY_BADGE_CLASSES.LOW;
+  return (
+    <span
+      className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-medium ${cls}`}
+      title={`Priority queue: ${queue}${lead.score !== null ? ` — score ${lead.score}/10` : ""}`}
+    >
+      {queue}
+      {lead.score !== null ? ` · ${lead.score}` : ""}
+    </span>
   );
 }
 // --- Outreach status badge (PH1-B6) ---
@@ -776,6 +805,7 @@ function LeadCard({
         <StatusBadge stage={lead.pipeline_stage} stages={stages} />
       </div>
       <div className="mb-2 flex flex-wrap items-center gap-1.5">
+        <PriorityBadge lead={lead} />
         <OutreachStatusBadge status={lead.outreach_status} />
         <TraceBadge status={lead.trace_status} />
         {lead.dnc_flag ? (
@@ -1566,6 +1596,9 @@ function ListView({
               Stage
             </th>
             <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-400">
+              Priority
+            </th>
+            <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-400">
               Source
             </th>
             <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-400">
@@ -1623,6 +1656,9 @@ function ListView({
                       ))}
                   </select>
                 </td>
+                <td className="px-4 py-3">
+                  <PriorityBadge lead={lead} />
+                </td>
                 <td className="px-4 py-3 text-xs text-gray-400">
                   {getSourceLabel(lead.lead_source)}
                 </td>
@@ -1669,6 +1705,16 @@ function CrmPage() {
   const [automationBusy, setAutomationBusy] = useState(false);
   const [pipelineHistory, setPipelineHistory] = useState<PipelineHistoryEntry[]>([]);
   const [outreachHistory, setOutreachHistory] = useState<OutreachHistoryRow[]>([]);
+  // Deep-link support (PH1-B7): /crm?lead=<id> (from the dashboard "Next 25 to
+  // Work") opens that lead's detail modal once the list has loaded.
+  const [pendingLeadId, setPendingLeadId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      return new URLSearchParams(window.location.search).get("lead");
+    } catch {
+      return null;
+    }
+  });
   const runSkipTrace = async (ids?: string[]) => { setAutomationBusy(true); try { const result = await skipTrace({ data: { ids } }); if (!result.success) alert(result.error); else { alert(result.message || `Skip trace requested: ${result.updated} lead(s) marked.`); loadTraceJobs(); } if (result.success && ids?.[0]) { const refreshed = await fetchLeads(); setLeads(refreshed.leads); setDbUnavailable(refreshed.dbUnavailable); setSelectedLead(refreshed.leads.find((l) => l.id === ids[0]) || null); } } catch { alert("Skip trace failed"); } finally { setAutomationBusy(false); } };
   const runOutreach = async (id: string) => { setAutomationBusy(true); try { const result = await startOutreach({ data: { leadId: id } }); if (!result.success) alert(result.error); else alert("SMS outreach started."); } catch { alert("Outreach failed"); } finally { setAutomationBusy(false); } };
   const runEmailOutreach = async (id: string) => { setAutomationBusy(true); try { const result = await startEmailOutreach({ data: { leadId: id } }); if (!result.success) alert(result.error); else alert(`Email outreach started — Email 1 sent, ${result.scheduled || 4} follow-ups scheduled.`); } catch { alert("Email outreach failed"); } finally { setAutomationBusy(false); } };
@@ -1823,6 +1869,15 @@ function CrmPage() {
         .catch(() => {});
     }
   }, [selectedLead?.id]);
+  // Deep-link: open the lead from ?lead=<id> as soon as it is in the list
+  useEffect(() => {
+    if (!pendingLeadId || leads.length === 0) return;
+    const found = leads.find((l) => l.id === pendingLeadId);
+    if (found) {
+      setSelectedLead(found);
+      setPendingLeadId(null);
+    }
+  }, [leads, pendingLeadId]);
 
   const handleStageChange = async (id: string, newStage: string) => {
     // Optimistic update
@@ -1872,13 +1927,15 @@ function CrmPage() {
 
   const [stageFilter, setStageFilter] = useState<string | "all">("all");
   const [sourceFilter, setSourceFilter] = useState("all");
-  const [scoreFilter, setScoreFilter] = useState("all");
+  const [priorityFilter, setPriorityFilter] = useState("all");
   const sources = useMemo(() => Array.from(new Set(leads.map((l) => l.lead_source).filter(Boolean))).sort(), [leads]);
   const visibleLeads = useMemo(() => leads.filter((l) =>
     (stageFilter === "all" || l.pipeline_stage === stageFilter) &&
     (sourceFilter === "all" || l.lead_source === sourceFilter) &&
-    (scoreFilter === "all" || (scoreFilter === "high" ? l.score >= 70 : scoreFilter === "medium" ? l.score >= 40 && l.score < 70 : l.score < 40))
-  ), [leads, stageFilter, sourceFilter, scoreFilter]);
+    (priorityFilter === "all" ||
+      l.priority_queue === priorityFilter ||
+      (priorityFilter === "unscored" && !l.priority_queue))
+  ), [leads, stageFilter, sourceFilter, priorityFilter]);
   const pipelineCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     visibleLeads.forEach((l) => {
@@ -2015,7 +2072,7 @@ function CrmPage() {
           <div className="mt-5 flex flex-wrap gap-2">
             <select value={stageFilter} onChange={(e) => setStageFilter(e.target.value)} className="rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-gray-300"><option value="all">All stages</option>{stages.map((s) => <option key={s.id} value={s.name}>{stageLabel(s.name)}</option>)}</select>
             <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} className="rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-gray-300"><option value="all">All sources</option>{sources.map((s) => <option key={s} value={s}>{getSourceLabel(s)}</option>)}</select>
-            <select value={scoreFilter} onChange={(e) => setScoreFilter(e.target.value)} className="rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-gray-300"><option value="all">All scores</option><option value="high">High score (70+)</option><option value="medium">Medium (40–69)</option><option value="low">Low (&lt;40)</option></select>
+            <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)} className="rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-gray-300"><option value="all">All priorities</option><option value="HOT">HOT</option><option value="HIGH">HIGH</option><option value="MEDIUM">MEDIUM</option><option value="LOW">LOW</option><option value="DEAD">DEAD</option><option value="unscored">Unscored</option></select>
           </div>
         </div>
       </div>
