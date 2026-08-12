@@ -17,8 +17,9 @@
 import { sql } from "~/db";
 import { sendSms } from "~/lib/sms";
 import { SMS_SEQUENCE } from "~/lib/outreach";
-import { EMAIL_SEQUENCE, sendEmail } from "~/lib/email-outreach";
+import { EMAIL_SEQUENCE, sendEmail, type EmailIdentity } from "~/lib/email-outreach";
 import { assertOutreachAllowed } from "~/lib/skip-trace";
+import { logOutreachAudit } from "~/lib/compliance";
 
 export interface DueOutreachRow {
   id: string;
@@ -57,26 +58,45 @@ function buildAddress(row: DueOutreachRow): string {
 async function sendSmsStep(row: DueOutreachRow): Promise<StepOutcome> {
   const template = SMS_SEQUENCE[row.step - 1];
   if (!template) return { ok: false, error: `No SMS template for step ${row.step}` };
-  // Hard block (PH1-B1): no contact info or suppressed → refuse to send.
-  const smsCheck = assertOutreachAllowed({ phone: row.phone, email: row.email, dnc_flag: row.dnc_flag });
-  if (!smsCheck.allowed) return { ok: false, error: smsCheck.reason };
+  // Hard block (PH1-B1 + B2): no phone or suppressed on the phone channel →
+  // refuse, and audit the block.
+  const smsCheck = assertOutreachAllowed({ phone: row.phone, email: row.email, dnc_flag: row.dnc_flag }, "sms");
+  if (!smsCheck.allowed) {
+    await logOutreachAudit({ leadId: row.lead_id, channel: "sms", direction: "outbound", status: "blocked", reason: smsCheck.reason, contactValue: row.phone });
+    return { ok: false, error: smsCheck.reason || "SMS blocked by compliance" };
+  }
   if (!row.phone) return { ok: false, error: "Lead has no phone number" };
-  const result = await sendSms(row.phone, template(row.full_name, buildAddress(row)), row.lead_id);
+  const businessName = await getBusinessName();
+  const result = await sendSms(row.phone, template(row.full_name, buildAddress(row), businessName), row.lead_id);
   return result.success ? { ok: true } : { ok: false, error: result.error || "SMS send failed" };
 }
 
-async function sendEmailStep(row: DueOutreachRow): Promise<StepOutcome> {
+async function getBusinessName(): Promise<string> {
+  try {
+    const { getBusinessProfile } = await import("~/lib/compliance");
+    const profile = await getBusinessProfile();
+    return profile.business_name || "DealForge Properties";
+  } catch {
+    return "DealForge Properties";
+  }
+}
+
+async function sendEmailStep(row: DueOutreachRow, identity: EmailIdentity): Promise<StepOutcome> {
   const template = EMAIL_SEQUENCE[row.step - 1];
   if (!template) return { ok: false, error: `No email template for step ${row.step}` };
-  // Hard block (PH1-B1): no contact info or suppressed → refuse to send.
-  const emailCheck = assertOutreachAllowed({ phone: row.phone, email: row.email, dnc_flag: row.dnc_flag });
-  if (!emailCheck.allowed) return { ok: false, error: emailCheck.reason };
+  // Hard block (PH1-B1 + B2): no email or suppressed on the email channel →
+  // refuse, and audit the block.
+  const emailCheck = assertOutreachAllowed({ phone: row.phone, email: row.email, dnc_flag: row.dnc_flag }, "email");
+  if (!emailCheck.allowed) {
+    await logOutreachAudit({ leadId: row.lead_id, channel: "email", direction: "outbound", status: "blocked", reason: emailCheck.reason, contactValue: row.email });
+    return { ok: false, error: emailCheck.reason || "Email blocked by compliance" };
+  }
   if (!row.email) return { ok: false, error: "Lead has no email address" };
   const result = await sendEmail({
     to: row.email,
-    subject: template.subject(row.full_name, buildAddress(row)),
-    html: template.html(row.full_name, buildAddress(row)),
-    text: template.text(row.full_name, buildAddress(row)),
+    subject: template.subject(row.full_name, buildAddress(row), identity),
+    html: template.html(row.full_name, buildAddress(row), identity),
+    text: template.text(row.full_name, buildAddress(row), identity),
     leadId: row.lead_id,
   });
   return result.success ? { ok: true } : { ok: false, error: result.error || "Email send failed" };
@@ -96,6 +116,18 @@ async function sendEmailStep(row: DueOutreachRow): Promise<StepOutcome> {
 export async function dispatchDueOutreach(limit = 100): Promise<DispatchResult> {
   const result: DispatchResult = { processed: 0, sent: 0, failed: 0, errors: [] };
 
+  // Load the business identity once for the whole batch — every rendered
+  // template (email) uses the profile the owner set in Settings.
+  const { getBusinessProfile } = await import("~/lib/compliance");
+  const profile = await getBusinessProfile();
+  const identity: EmailIdentity = {
+    businessName: profile.business_name || "DealForge Properties",
+    website: profile.website || "",
+    phone: profile.phone,
+    email: profile.email,
+    returnAddress: profile.return_address,
+  };
+
   const rows = (await sql`
     SELECT s.id, s.lead_id, s.channel, s.step,
            l.full_name, l.phone, l.email, l.dnc_flag,
@@ -110,7 +142,7 @@ export async function dispatchDueOutreach(limit = 100): Promise<DispatchResult> 
   for (const row of rows) {
     result.processed++;
     try {
-      const outcome = row.channel === "sms" ? await sendSmsStep(row) : await sendEmailStep(row);
+      const outcome = row.channel === "sms" ? await sendSmsStep(row) : await sendEmailStep(row, identity);
       if (outcome.ok) {
         await sql`UPDATE outreach_sequences SET status = 'sent', sent_at = now() WHERE id = ${row.id} AND status IN ('scheduled','pending')`;
         result.sent++;

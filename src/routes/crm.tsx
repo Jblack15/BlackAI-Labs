@@ -302,6 +302,27 @@ const recordManualTrace = createServerFn({ method: "POST" })
     }
   });
 const startOutreach = createServerFn({ method: "POST" }).validator((data: unknown) => data as { leadId: string }).handler(async ({ data }) => { try { const { startSmsOutreach } = await import("~/lib/outreach"); return await startSmsOutreach(data.leadId); } catch (e) { return { success: false, error: e instanceof Error ? e.message : "Outreach failed" }; } });
+// --- Compliance actions (PH1-B2) ---
+// Human-in-the-loop suppression: "Mark opted out / wrong number / invalid /
+// do-not-mail" in the lead modal. Each action sets the flag, writes a consent
+// record (for opt-outs) and an outreach_audit_log row with the operator.
+const recordComplianceAction = createServerFn({ method: "POST" })
+  .validator((data: unknown) => {
+    const d = data as { leadId: string; flag: string };
+    if (!d?.leadId || !d?.flag) throw new Error("leadId and flag are required");
+    return d;
+  })
+  .handler(async ({ data }) => {
+    try {
+      const { recordSuppression } = await import("~/lib/compliance");
+      return await recordSuppression(data.leadId, data.flag as "do_not_mail" | "opted_out" | "invalid_contact" | "wrong_number", {
+        operator: "crm-user",
+        detail: "Marked manually from CRM lead modal",
+      });
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : "Failed to record suppression" };
+    }
+  });
 const bulkOutreach = createServerFn({ method: "POST" }).handler(async () => { try { const { startBulkOutreach } = await import("~/lib/outreach"); return await startBulkOutreach(); } catch (e) { return { success: false, started: 0, error: e instanceof Error ? e.message : "Outreach failed" }; } });
 const startEmailOutreach = createServerFn({ method: "POST" }).validator((data: unknown) => data as { leadId: string }).handler(async ({ data }) => { try { const { startEmailOutreach: runDrip } = await import("~/lib/email-outreach"); return await runDrip(data.leadId); } catch (e) { return { success: false, error: e instanceof Error ? e.message : "Email outreach failed" }; } });
 const bulkEmailOutreach = createServerFn({ method: "POST" }).handler(async () => { try { const { startBulkEmailOutreach } = await import("~/lib/email-outreach"); return await startBulkEmailOutreach(); } catch (e) { return { success: false, started: 0, error: e instanceof Error ? e.message : "Email outreach failed" }; } });
@@ -682,6 +703,7 @@ function LeadDetailModal({
   onStartEmailOutreach,
   onSendMail,
   onManualTrace,
+  onComplianceAction,
   automationBusy,
   pipelineHistory,
 }: {
@@ -698,11 +720,27 @@ function LeadDetailModal({
   onStartEmailOutreach: (id: string) => void;
   onSendMail: (leadId: string, campaign?: string) => void;
   onManualTrace: (leadId: string, contact: { phone?: string; email?: string; dncFlag?: string }) => Promise<{ success: boolean; error?: string }>;
+  onComplianceAction: (leadId: string, flag: string) => Promise<{ success: boolean; error?: string }>;
   automationBusy: boolean;
   pipelineHistory: PipelineHistoryEntry[];
 }) {
   const [smsMessage, setSmsMessage] = useState("");
   const [mailCampaign, setMailCampaign] = useState("auto");
+  // Compliance suppression state (PH1-B2)
+  const [complianceBusy, setComplianceBusy] = useState<string | null>(null);
+  const [complianceResult, setComplianceResult] = useState<{ success: boolean; error?: string } | null>(null);
+  const handleCompliance = async (flag: string) => {
+    setComplianceBusy(flag);
+    setComplianceResult(null);
+    try {
+      const result = await onComplianceAction(lead.id, flag);
+      setComplianceResult(result);
+    } catch {
+      setComplianceResult({ success: false, error: "Failed to record suppression" });
+    } finally {
+      setComplianceBusy(null);
+    }
+  };
   // Backup trace form state (PH1-B1): manual contact-info entry works regardless
   // of which trace service is used.
   const [showBackupTrace, setShowBackupTrace] = useState(false);
@@ -937,6 +975,55 @@ function LeadDetailModal({
               </div>
             )}
           </div>
+          {/* Compliance / Suppression (PH1-B2) — human-in-the-loop */}
+          <div className="rounded-lg border border-red-500/20 bg-navy-900/50 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-white">Compliance &amp; Suppression</h3>
+              <span className="text-[11px] text-gray-500">Every action is written to the audit log</span>
+            </div>
+            <p className="mt-1 text-[11px] text-gray-500">
+              Mark this contact so the system never reaches them again. Opted-out also records a consent
+              record (granted=false). Contactable is recomputed automatically.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                onClick={() => handleCompliance("opted_out")}
+                disabled={complianceBusy !== null}
+                className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-300 disabled:opacity-50"
+              >
+                {complianceBusy === "opted_out" ? "Saving..." : "Mark Opted Out"}
+              </button>
+              <button
+                onClick={() => handleCompliance("wrong_number")}
+                disabled={complianceBusy !== null}
+                className="rounded-lg border border-orange-500/40 bg-orange-500/10 px-3 py-1.5 text-xs font-medium text-orange-300 disabled:opacity-50"
+              >
+                {complianceBusy === "wrong_number" ? "Saving..." : "Wrong Number"}
+              </button>
+              <button
+                onClick={() => handleCompliance("invalid_contact")}
+                disabled={complianceBusy !== null}
+                className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-300 disabled:opacity-50"
+              >
+                {complianceBusy === "invalid_contact" ? "Saving..." : "Invalid Contact"}
+              </button>
+              <button
+                onClick={() => handleCompliance("do_not_mail")}
+                disabled={complianceBusy !== null}
+                className="rounded-lg border border-slate-500/40 bg-slate-500/10 px-3 py-1.5 text-xs font-medium text-slate-300 disabled:opacity-50"
+              >
+                {complianceBusy === "do_not_mail" ? "Saving..." : "Do Not Mail"}
+              </button>
+            </div>
+            {complianceResult && (
+              <p className={`mt-2 text-xs ${complianceResult.success ? "text-emerald-400" : "text-red-400"}`}>
+                {complianceResult.success
+                  ? "Suppression recorded — this contact is now blocked on the affected channel(s) and audit-logged."
+                  : complianceResult.error}
+              </p>
+            )}
+          </div>
+
           {/* Stage Dropdown (valid next stages only) */}
           <div>
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-gray-500">
@@ -1359,6 +1446,21 @@ function CrmPage() {
   const runEmailOutreach = async (id: string) => { setAutomationBusy(true); try { const result = await startEmailOutreach({ data: { leadId: id } }); if (!result.success) alert(result.error); else alert(`Email outreach started — Email 1 sent, ${result.scheduled || 4} follow-ups scheduled.`); } catch { alert("Email outreach failed"); } finally { setAutomationBusy(false); } };
   const runSendMail = async (id: string, campaign?: string) => { setAutomationBusy(true); try { const result = await sendMailToLead({ data: { leadId: id, campaign } }); if (!result.success) alert(result.error || "Direct mail failed"); else alert(`Postcard submitted to Click2Mail — ${result.sent} piece(s) queued.`); } catch { alert("Direct mail failed"); } finally { setAutomationBusy(false); } };
   const runBulkSendMail = async (ids: string[]) => { setAutomationBusy(true); try { const result = await bulkSendMail({ data: { ids } }); if (!result.success) alert(result.error || "Bulk direct mail failed"); else alert(`Direct mail submitted — ${result.sent} postcard(s) queued.`); } catch { alert("Bulk direct mail failed"); } finally { setAutomationBusy(false); } };
+  // --- Compliance action handler (PH1-B2) ---
+  const runComplianceAction = async (leadId: string, flag: string) => {
+    try {
+      const result = await recordComplianceAction({ data: { leadId, flag } });
+      const refreshed = await fetchLeads().catch(() => null);
+      if (refreshed) {
+        setLeads(refreshed.leads);
+        setDbUnavailable(refreshed.dbUnavailable);
+        setSelectedLead((prev) => (prev ? refreshed.leads.find((l) => l.id === prev.id) ?? prev : prev));
+      }
+      return { success: result.success, error: result.error };
+    } catch {
+      return { success: false, error: "Failed to record suppression" };
+    }
+  };
   // --- Skip-trace monitor state (PH1-B1) ---
   const [traceJobs, setTraceJobs] = useState<SkipTraceJobRow[]>([]);
   const [traceSummary, setTraceSummary] = useState<{ total: number; contactable: number; nonContactable: number } | null>(null);
@@ -1710,6 +1812,7 @@ function CrmPage() {
           onStartEmailOutreach={runEmailOutreach}
           onSendMail={runSendMail}
           onManualTrace={handleManualTrace}
+          onComplianceAction={runComplianceAction}
           automationBusy={automationBusy}
           pipelineHistory={pipelineHistory}
         />

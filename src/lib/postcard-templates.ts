@@ -243,14 +243,31 @@ export interface PostcardMergeData {
   zip: string;
 }
 
-/** Substitute {{merge}} fields in a template fragment with escaped values. */
-export function renderPostcardTemplate(html: string, data: PostcardMergeData): string {
+/** Business identity rendered into every postcard (PH1-B2). When fields are
+ *  missing the placeholders stay visible — the identity guard in click2mail.ts
+ *  blocks the send before any piece is printed, so a placeholder can never
+ *  reach the mail. */
+export interface PostcardIdentity {
+  businessName: string;
+  phone: string | null;
+  website: string | null;
+}
+
+/** Substitute {{merge}} fields in a template fragment with escaped values, and
+ *  render the business identity (phone/website/brand name) from the profile. */
+export function renderPostcardTemplate(html: string, data: PostcardMergeData, identity?: PostcardIdentity): string {
   const esc = (v: string) =>
     v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const bizName = identity?.businessName?.trim() || "DealForge Properties";
   return html
     .replace(/\{\{name\}\}/g, esc(data.name))
     .replace(/\{\{address\}\}/g, esc(data.address))
     .replace(/\{\{city\}\}/g, esc(data.city))
     .replace(/\{\{state\}\}/g, esc(data.state))
-    .replace(/\{\{zip\}\}/g, esc(data.zip));
+    .replace(/\{\{zip\}\}/g, esc(data.zip))
+    .replace(/\[PHONE\]/g, identity?.phone ? esc(identity.phone) : "[PHONE]")
+    .replace(/\[WEBSITE\]/g, identity?.website ? esc(identity.website) : "[WEBSITE]")
+    // Brand name in the header/footer ("Deal<span …>Forge</span> Properties") →
+    // the profile business name, so no piece prints a name the owner did not set.
+    .replace(/Deal<span[^>]*>Forge<\/span> Properties/g, esc(bizName));
 }
