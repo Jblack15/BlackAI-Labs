@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApprovalsRouteImport } from './routes/approvals'
 import { Route as BuyersRouteImport } from './routes/buyers'
 import { Route as CalculatorRouteImport } from './routes/calculator'
 import { Route as CommandCenterRouteImport } from './routes/command-center'
@@ -38,6 +39,11 @@ import { Route as ApiSkipTraceMonitorRouteImport } from './routes/api/skip-trace
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApprovalsRoute = ApprovalsRouteImport.update({
+  id: '/approvals',
+  path: '/approvals',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BuyersRoute = BuyersRouteImport.update({
@@ -163,6 +169,7 @@ const ApiSkipTraceMonitorRoute = ApiSkipTraceMonitorRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/approvals': typeof ApprovalsRoute
   '/buyers': typeof BuyersRoute
   '/calculator': typeof CalculatorRoute
   '/command-center': typeof CommandCenterRoute
@@ -190,6 +197,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/approvals': typeof ApprovalsRoute
   '/buyers': typeof BuyersRoute
   '/calculator': typeof CalculatorRoute
   '/command-center': typeof CommandCenterRoute
@@ -218,6 +226,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/approvals': typeof ApprovalsRoute
   '/buyers': typeof BuyersRoute
   '/calculator': typeof CalculatorRoute
   '/command-center': typeof CommandCenterRoute
@@ -247,6 +256,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/approvals'
     | '/buyers'
     | '/calculator'
     | '/command-center'
@@ -274,6 +284,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/approvals'
     | '/buyers'
     | '/calculator'
     | '/command-center'
@@ -301,6 +312,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/approvals'
     | '/buyers'
     | '/calculator'
     | '/command-center'
@@ -329,6 +341,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApprovalsRoute: typeof ApprovalsRoute
   BuyersRoute: typeof BuyersRoute
   CalculatorRoute: typeof CalculatorRoute
   CommandCenterRoute: typeof CommandCenterRoute
@@ -362,6 +375,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/approvals': {
+      id: '/approvals'
+      path: '/approvals'
+      fullPath: '/approvals'
+      preLoaderRoute: typeof ApprovalsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/buyers': {
@@ -537,6 +557,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApprovalsRoute: ApprovalsRoute,
   BuyersRoute: BuyersRoute,
   CalculatorRoute: CalculatorRoute,
   CommandCenterRoute: CommandCenterRoute,

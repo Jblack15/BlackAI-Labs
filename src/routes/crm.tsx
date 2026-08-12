@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { useState, useMemo, useEffect } from "react";
 import type { PostcardCampaign } from "~/lib/postcard-templates";
+import type { ApprovalRow } from "~/lib/approvals";
 import { VALID_TRANSITIONS, validNextStages } from "~/lib/pipeline-transitions";
 import {
   OUTREACH_TRANSITIONS,
@@ -368,9 +369,22 @@ const setOutreachStatus = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     try {
       const { transitionOutreachStatus } = await import("~/lib/outreach-status");
+      // HUMAN APPROVAL GATES (PH1-B11): offer / negotiation / contract_signed
+      // transitions require an approved approval_request for this lead (plan
+      // rev 18 - final offers, negotiation beyond approved parameters and
+      // legally binding contracts all need owner approval). The state machine
+      // rejects the transition with "requires approved approval_request" when
+      // no approved request exists.
+      const gate =
+        data.to === "offer" || data.to === "negotiation"
+          ? { kind: "offer" as const, refId: data.leadId }
+          : data.to === "contract_signed"
+            ? { kind: "contract" as const, refId: data.leadId }
+            : undefined;
       return await transitionOutreachStatus(data.leadId, data.to, {
         reason: "Manual transition from CRM lead modal",
         operator: "crm-user",
+        ...(gate ? { requireApproval: gate } : {}),
       });
     } catch (e) {
       return { success: false, error: e instanceof Error ? e.message : "Status transition failed" };
@@ -423,6 +437,55 @@ const fetchOutreachHistory = createServerFn({ method: "GET" })
     try {
       const { getOutreachStatusHistory } = await import("~/lib/outreach-status");
       return await getOutreachStatusHistory(data.leadId);
+    } catch {
+      return [];
+    }
+  });
+// HUMAN APPROVAL GATES (PH1-B11) — lead-level approval status + request.
+const requestLeadApproval = createServerFn({ method: "POST" })
+  .validator((data: unknown) => {
+    const d = data as { leadId: string; kind: "offer" | "contract"; details?: string };
+    if (!d?.leadId || !d?.kind) throw new Error("leadId and kind are required");
+    return d;
+  })
+  .handler(async ({ data }) => {
+    try {
+      const { requestApproval } = await import("~/lib/approvals");
+      return await requestApproval({
+        kind: data.kind,
+        refType: "lead",
+        refId: data.leadId,
+        details: data.details || null,
+        operator: "crm-user",
+      });
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : "Request approval failed" };
+    }
+  });
+const fetchLeadApprovalStatus = createServerFn({ method: "GET" })
+  .validator((data: unknown) => {
+    const d = data as { leadId: string };
+    if (!d?.leadId) throw new Error("leadId is required");
+    return d;
+  })
+  .handler(async ({ data }) => {
+    try {
+      const { leadApprovalStatus } = await import("~/lib/approvals");
+      return await leadApprovalStatus(data.leadId);
+    } catch {
+      return [];
+    }
+  });
+const fetchLeadApprovalHistory = createServerFn({ method: "GET" })
+  .validator((data: unknown) => {
+    const d = data as { leadId: string };
+    if (!d?.leadId) throw new Error("leadId is required");
+    return d;
+  })
+  .handler(async ({ data }) => {
+    try {
+      const { leadApprovalHistory } = await import("~/lib/approvals");
+      return await leadApprovalHistory(data.leadId);
     } catch {
       return [];
     }
@@ -892,9 +955,12 @@ function LeadDetailModal({
   onOutreachStatusChange,
   onMarkTerminal,
   onSaveSellerFields,
+  onRequestApproval,
   automationBusy,
   pipelineHistory,
   outreachHistory,
+  leadApprovals,
+  leadApprovalHistoryRows,
 }: {
   lead: Lead;
   stages: PipelineStageInfo[];
@@ -912,9 +978,12 @@ function LeadDetailModal({
   onOutreachStatusChange: (leadId: string, to: string) => Promise<{ success: boolean; error?: string }>;
   onMarkTerminal: (leadId: string, terminal: string) => Promise<{ success: boolean; error?: string }>;
   onSaveSellerFields: (leadId: string, fields: Record<string, unknown>) => Promise<{ success: boolean; error?: string; sellerSummary?: string }>;
+  onRequestApproval: (leadId: string, kind: "offer" | "contract", details?: string) => Promise<{ success: boolean; error?: string; duplicate?: boolean }>;
   automationBusy: boolean;
   pipelineHistory: PipelineHistoryEntry[];
   outreachHistory: OutreachHistoryRow[];
+  leadApprovals: Array<{ kind: "offer" | "contract"; pending: boolean; approved: boolean }>;
+  leadApprovalHistoryRows: ApprovalRow[];
 }) {
   const [smsMessage, setSmsMessage] = useState("");
   const [mailCampaign, setMailCampaign] = useState("auto");
@@ -945,6 +1014,26 @@ function LeadDetailModal({
       setOutreachResult({ success: false, error: "Failed to mark terminal status" });
     } finally {
       setOutreachBusy(null);
+    }
+  };
+  // HUMAN APPROVAL GATES (PH1-B11): request owner approval for the lead's
+  // gated transitions (offer / contract). The UI shows the current status
+  // (none/pending/approved) and a Request button when nothing is pending.
+  const [approvalBusy, setApprovalBusy] = useState<"offer" | "contract" | null>(null);
+  const [approvalResult, setApprovalResult] = useState<{ success: boolean; error?: string } | null>(null);
+  const handleRequestApproval = async (kind: "offer" | "contract") => {
+    setApprovalBusy(kind);
+    setApprovalResult(null);
+    try {
+      const result = await onRequestApproval(lead.id, kind, "Requested from CRM lead modal before offer/negotiation/contract transition");
+      setApprovalResult(result);
+      if (result.success) {
+        window.location.href = "/approvals";
+      }
+    } catch {
+      setApprovalResult({ success: false, error: "Failed to request approval" });
+    } finally {
+      setApprovalBusy(null);
     }
   };
   // Backup trace form state (PH1-B1): manual contact-info entry works regardless
@@ -1338,6 +1427,88 @@ function LeadDetailModal({
                   : outreachResult.error}
               </p>
             )}
+            {/* Owner approval gates (PH1-B11) — offer / negotiation /
+                contract_signed transitions are blocked without an approved
+                approval_request. Show status + request button. */}
+            <div className="mt-4 rounded-lg border border-gold-500/30 bg-gold-500/5 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-gold-400">
+                  Owner approval required
+                </h4>
+                <Link
+                  to="/approvals"
+                  className="text-[11px] text-gray-400 underline-offset-2 hover:text-gold-400 hover:underline"
+                >
+                  Review approvals →
+                </Link>
+              </div>
+              <p className="mt-1 text-[11px] text-gray-500">
+                Transitioning this lead to Offer / Negotiation or Contract Signed is blocked
+                until the owner approves the matching request (plan rev 18 — human approval
+                gates are non-negotiable).
+              </p>
+              <div className="mt-2 space-y-2">
+                {(["offer", "contract"] as const).map((kind) => {
+                  const st = leadApprovals.find((a) => a.kind === kind);
+                  return (
+                    <div key={kind} className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="capitalize text-gray-300">{kind}</span>
+                        <span className="text-gray-600">→</span>
+                        <span
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                            st?.approved
+                              ? "bg-emerald-500/15 text-emerald-400"
+                              : st?.pending
+                                ? "bg-gold-500/15 text-gold-400"
+                                : "bg-navy-700 text-gray-500"
+                          }`}
+                        >
+                          {st?.approved ? "approved" : st?.pending ? "pending" : "not requested"}
+                        </span>
+                      </div>
+                      {!st?.pending && !st?.approved && (
+                        <button
+                          onClick={() => handleRequestApproval(kind)}
+                          disabled={approvalBusy !== null || automationBusy}
+                          className="rounded-lg border border-gold-500/40 bg-gold-500/10 px-3 py-1 text-[11px] font-medium text-gold-400 transition-colors hover:bg-gold-500/20 disabled:opacity-40"
+                        >
+                          {approvalBusy === kind ? "Requesting..." : "Request approval"}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              {approvalResult && (
+                <p className={`mt-2 text-[11px] ${approvalResult.success ? "text-emerald-400" : "text-red-400"}`}>
+                  {approvalResult.success
+                    ? "Approval requested — the owner decides in /approvals. This transition stays blocked until then."
+                    : approvalResult.error}
+                </p>
+              )}
+              {leadApprovalHistoryRows.length > 0 && (
+                <div className="mt-3 border-t border-navy-700 pt-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-600">
+                    Approval history
+                  </span>
+                  <ol className="mt-1 space-y-1">
+                    {leadApprovalHistoryRows.slice(0, 5).map((a) => (
+                      <li key={a.id} className="flex flex-wrap items-center justify-between gap-1 text-[10px] text-gray-500">
+                        <span>
+                          <span className="capitalize text-gray-300">{a.kind}</span>{" "}
+                          <span className={a.status === "approved" ? "text-emerald-400" : a.status === "rejected" ? "text-red-400" : "text-gold-400"}>
+                            {a.status}
+                          </span>
+                          {a.decisionNote ? ` — ${a.decisionNote}` : ""}
+                        </span>
+                        <span>{new Date(a.createdAt).toLocaleString()}</span>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+            </div>
 
             {/* Status-change history */}
             <div className="mt-4">
@@ -1995,6 +2166,8 @@ function CrmPage() {
   const [automationBusy, setAutomationBusy] = useState(false);
   const [pipelineHistory, setPipelineHistory] = useState<PipelineHistoryEntry[]>([]);
   const [outreachHistory, setOutreachHistory] = useState<OutreachHistoryRow[]>([]);
+  const [leadApprovals, setLeadApprovals] = useState<Array<{ kind: "offer" | "contract"; pending: boolean; approved: boolean }>>([]);
+  const [leadApprovalHistoryRows, setLeadApprovalHistoryRows] = useState<ApprovalRow[]>([]);
   // Deep-link support (PH1-B7): /crm?lead=<id> (from the dashboard "Next 25 to
   // Work") opens that lead's detail modal once the list has loaded.
   const [pendingLeadId, setPendingLeadId] = useState<string | null>(() => {
@@ -2043,6 +2216,26 @@ function CrmPage() {
       return { success: result.success, error: result.error };
     } catch {
       return { success: false, error: "Failed to mark terminal status" };
+    }
+  };
+  // HUMAN APPROVAL GATES (PH1-B11): request owner approval for a lead's
+  // gated transition (offer / contract). Creates the pending request; the
+  // state machine keeps the transition blocked until the owner approves it.
+  const runRequestApproval = async (leadId: string, kind: "offer" | "contract", details?: string) => {
+    try {
+      const result = await requestLeadApproval({ data: { leadId, kind, details } });
+      if (result.success) {
+        setLeadApprovals((prev) => {
+          const next = prev.filter((a) => a.kind !== kind);
+          return [...next, { kind, pending: true, approved: false }];
+        });
+        await fetchLeadApprovalHistory({ data: { leadId } })
+          .then((rows) => { if (rows) setLeadApprovalHistoryRows(rows); })
+          .catch(() => {});
+      }
+      return result;
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : "Request approval failed" };
     }
   };
   // --- Seller Pipeline CRM (PH1-B8) ---
@@ -2155,6 +2348,8 @@ function CrmPage() {
       setSmsResult(null);
       setPipelineHistory([]);
       setOutreachHistory([]);
+      setLeadApprovals([]);
+      setLeadApprovalHistoryRows([]);
       fetchLeadSmsLogs({ data: { leadId: selectedLead.id } })
         .then((data) => {
           if (data) setSmsLogs(data);
@@ -2168,6 +2363,16 @@ function CrmPage() {
       fetchOutreachHistory({ data: { leadId: selectedLead.id } })
         .then((data) => {
           if (data) setOutreachHistory(data);
+        })
+        .catch(() => {});
+      fetchLeadApprovalStatus({ data: { leadId: selectedLead.id } })
+        .then((data) => {
+          if (data) setLeadApprovals(data);
+        })
+        .catch(() => {});
+      fetchLeadApprovalHistory({ data: { leadId: selectedLead.id } })
+        .then((data) => {
+          if (data) setLeadApprovalHistoryRows(data);
         })
         .catch(() => {});
     }
@@ -2429,9 +2634,12 @@ function CrmPage() {
           onOutreachStatusChange={runOutreachStatusChange}
           onMarkTerminal={runMarkTerminal}
           onSaveSellerFields={runSaveSellerFields}
+          onRequestApproval={runRequestApproval}
           automationBusy={automationBusy}
           pipelineHistory={pipelineHistory}
           outreachHistory={outreachHistory}
+          leadApprovals={leadApprovals}
+          leadApprovalHistoryRows={leadApprovalHistoryRows}
         />
       )}
     </div>

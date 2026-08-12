@@ -26,10 +26,23 @@
 //     — the status-change audit rows for one lead (newest first), for the CRM
 //       modal timeline.
 //
+// HUMAN APPROVAL GATES (PH1-B11) — additive, OFF by default
+//   transitionOutreachStatus accepts opts.requireApproval = {kind, refId}.
+//   When set, the transition is REJECTED (error contains "requires approved
+//   approval_request") unless an approved approval_request exists for
+//   (kind, ref_type='lead', ref_id=refId) — checked via hasApproval() in
+//   lib/approvals.ts. The CRM layer passes it for offer / negotiation /
+//   contract_signed transitions (the owner-approved gates of plan rev 18).
+//   The terminal-state override path (documented reason + operator) is
+//   preserved and does NOT bypass the gate — approval is a hard legal control,
+//   not a documented-reason workaround. Call sites that pass nothing are
+//   completely unaffected (gate is off by default).
+//
 // The deal pipeline (src/lib/pipeline.ts, pipeline_stage) is NOT touched —
 // see the mapping comment in outreach-status-map.ts.
 import { sql } from "~/db";
 import { logOutreachAudit } from "~/lib/compliance";
+import { hasApproval, type ApprovalKind } from "~/lib/approvals";
 import {
   OUTREACH_TRANSITIONS,
   TERMINAL_OUTREACH_STATUSES,
@@ -47,6 +60,11 @@ export type OutreachTransitionOptions = {
   /** Explicit manual override — the ONLY way out of a terminal state. Must be
    *  paired with a reason + operator (enforced). */
   override?: boolean;
+  /** HUMAN APPROVAL GATE (PH1-B11, additive — off when omitted). When set,
+   *  the transition is REJECTED unless an approved approval_request exists for
+   *  (kind, ref_type='lead', ref_id). refId is the lead UUID. The gate holds
+   *  even when override is set — approval is a hard legal control. */
+  requireApproval?: { kind: ApprovalKind; refId: string };
 };
 
 export type OutreachTransitionResult = {
@@ -112,6 +130,20 @@ export async function transitionOutreachStatus(
         success: false,
         error: `Invalid transition from ${current} to ${to} (not in the outreach status map)`,
       };
+    }
+
+    // HUMAN APPROVAL GATE (PH1-B11): when the caller requires an approval for
+    // this transition, it is REJECTED unless an approved approval_request
+    // exists for (kind, ref_type='lead', ref_id=leadId). Holds even when
+    // override is set — the gate is a hard legal control (plan rev 18).
+    if (opts.requireApproval) {
+      const ok = await hasApproval(opts.requireApproval.kind, "lead", leadId, ["approved"]);
+      if (!ok) {
+        return {
+          success: false,
+          error: `Blocked: requires approved approval_request (kind=${opts.requireApproval.kind}) — request owner approval before this transition`,
+        };
+      }
     }
 
     await sql`
