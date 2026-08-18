@@ -333,11 +333,14 @@ try {
     "src/routeTree.gen.ts",
     // Build-fix files added during part 2's build repair: the client-only
     // auth stub (served to the client build env instead of the real server
-    // auth.ts), the vite config whose load hook does the swap, and the
-    // server-only auth lib itself (gained the randomToken/sha256Hex helpers so
-    // the /api/auth route files no longer import node:crypto client-side).
+    // auth.ts), the vite config whose load hook does the swap, the server-only
+    // auth lib itself (gained the randomToken/sha256Hex helpers so the
+    // /api/auth route files no longer import node:crypto client-side), and the
+    // two auth route files that now import those helpers instead of node:crypto.
     "src/lib/auth.client-stub.ts",
     "src/lib/auth.ts",
+    "src/routes/api/auth/login.ts",
+    "src/routes/api/auth/logout.ts",
     "vite.config.ts",
   ];
   const fabGrep = ["src/lib/auth.ts", "src/routes/api/auth/login.ts", "src/routes/api/auth/logout.ts", "src/routes/api/auth/status.ts", "scripts/set-owner-pin.ts", "src/components/OwnerGate.tsx", "src/components/Header.tsx", "src/routes/login.tsx"];
@@ -408,16 +411,20 @@ for (const p of publicRoutes) {
 // ("Sign in required") and NOT containing any real lead PII. OwnerGate renders
 // the panel synchronously during SSR (spec §4/§10 — loading = panel, never a
 // data flash), and data effects only mount client-side after authentication.
-// Probe one real lead from the live DB: its phone/full_name/email must not
-// appear anywhere in the owner pages' SSR HTML (the gate panel + public chrome
-// contain no PII).
+// Probe one real lead from the live DB: any populated PII (full_name / phone /
+// email — the PropStream leads all carry full_name; phone/email are empty
+// until skip-tracing lands, so the probe takes whichever fields exist) must
+// not appear anywhere in the owner pages' SSR HTML (the gate panel + public
+// chrome contain no PII).
 const piiProbe = (await sql`
   SELECT phone, full_name, email FROM leads
-  WHERE full_name IS NOT NULL AND full_name <> '' AND phone IS NOT NULL AND phone <> ''
+  WHERE (full_name IS NOT NULL AND full_name <> '')
+     OR (phone IS NOT NULL AND phone <> '')
+     OR (email IS NOT NULL AND email <> '')
   LIMIT 1
 `) as Array<{ phone: string; full_name: string; email: string | null }>;
 const probe = piiProbe[0] ?? null;
-ok("PII probe lead available in live DB", !!probe, probe ? "probe ready (name+phone; value not printed)" : "no lead with name+phone — PII needles empty");
+ok("PII probe lead available in live DB", !!probe, probe ? "probe ready (PII fields present; values not printed)" : "no lead with any PII — PII needles empty");
 const piiNeedles: string[] = [];
 if (probe) {
   piiNeedles.push(probe.phone, probe.full_name);
