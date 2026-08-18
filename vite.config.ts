@@ -1,6 +1,7 @@
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
+import { readFileSync } from "node:fs";
 import { defineConfig, type Plugin } from "vite";
 import tsConfigPaths from "vite-tsconfig-paths";
 
@@ -22,14 +23,20 @@ import tsConfigPaths from "vite-tsconfig-paths";
 // the import survives (Header + API routes).
 const authClientStub: Plugin = {
   name: "dealforge:auth-client-stub",
-  transform(code, id) {
+  // PH1-B14 part 2 build fix: src/lib/auth.ts is SERVER-ONLY (node:crypto,
+  // node:util promisify, neon). TanStack Start keeps its static import in the
+  // client copies of src/components/Header.tsx (the createServerFn middleware
+  // option) and the /api/auth/* route files (top-level imports survive
+  // client-side). Bundling the real module breaks the client build and would
+  // leak the df_session cookie name to visitors (spec §12). This hook serves
+  // the inert src/lib/auth.client-stub.ts whenever the CLIENT environment asks
+  // to LOAD auth.ts — regardless of which plugin resolved the import. The
+  // server + SSR environments are untouched and load the real auth.ts, so the
+  // login/logout/status handlers and the owner middleware run the real code.
+  load(id) {
     if (this.environment?.name !== "client") return null;
-    if (id.includes("/src/components/Header.tsx") || id.includes("/src/routes/api/auth/")) {
-      const re = /from\s+["']~\/lib\/auth["']/g;
-      if (re.test(code)) {
-        const stub = `${import.meta.dirname}/src/lib/auth.client-stub.ts`;
-        return { code: code.replace(re, `from "${stub}"`), map: null };
-      }
+    if (id.replace(/\\/g, "/").endsWith("/src/lib/auth.ts")) {
+      return readFileSync(`${import.meta.dirname}/src/lib/auth.client-stub.ts`, "utf8");
     }
     return null;
   },
