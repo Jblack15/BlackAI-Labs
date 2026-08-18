@@ -14,7 +14,6 @@
 //   401 {ok:false, error}                              wrong PIN / bad body / not configured
 //   429 {ok:false, locked:true, error}                 rate-limit lockout
 import { createFileRoute } from "@tanstack/react-router";
-import { createHash, randomBytes } from "node:crypto";
 import { sql } from "~/db";
 import {
   SESSION_TTL_MS,
@@ -22,8 +21,10 @@ import {
   getClientIp,
   getSessionFromRequest,
   logAuthAudit,
+  randomToken,
   recordLoginFailure,
   sessionCookie,
+  sha256Hex,
   verifyPin,
 } from "~/lib/auth";
 
@@ -103,8 +104,8 @@ async function login({ request }: { request: Request }): Promise<Response> {
 
   // Success: mint a 24h session. Raw token lives ONLY in the cookie; the DB
   // stores sha256(token) hex (spec §2 — a DB read cannot steal sessions).
-  const token = randomBytes(32).toString("base64url");
-  const tokenHash = createHash("sha256").update(token).digest("hex");
+  const token = randomToken();
+  const tokenHash = sha256Hex(token);
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
   const userAgent = request.headers.get("user-agent");
   await sql`

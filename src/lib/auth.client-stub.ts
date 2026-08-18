@@ -31,6 +31,12 @@ export const requireOwnerMiddleware = createMiddleware({ type: "request" });
 export const SESSION_COOKIE = "";
 export const SESSION_TTL_MS = 86_400_000;
 export const SESSION_MAX_AGE_SECONDS = 86_400;
+export function randomToken(): string {
+  return "stub-token";
+}
+export function sha256Hex(_value: string): string {
+  return "stub";
+}
 
 export type AuthSession = { id: string; role: string };
 export type AuthAuditStatus = "login_ok" | "login_failed" | "blocked" | "logout" | "revoked";

@@ -3,16 +3,15 @@
 // Max-Age=0 and any matching live session row is revoked (revoke_reason='logout').
 // Responses: 200 {ok:true, revoked:boolean} with Set-Cookie clearing df_session.
 import { createFileRoute } from "@tanstack/react-router";
-import { createHash } from "node:crypto";
 import { sql } from "~/db";
-import { SESSION_COOKIE, logAuthAudit, parseCookies, sessionCookie } from "~/lib/auth";
+import { SESSION_COOKIE, logAuthAudit, parseCookies, sessionCookie, sha256Hex } from "~/lib/auth";
 
 async function logout({ request }: { request: Request }): Promise<Response> {
   const cookies = parseCookies(request.headers.get("cookie"));
   const token = cookies[SESSION_COOKIE];
   let revoked = false;
   if (token) {
-    const tokenHash = createHash("sha256").update(token).digest("hex");
+    const tokenHash = sha256Hex(token);
     const rows = (await sql`
       UPDATE auth_sessions SET revoked_at = now(), revoke_reason = 'logout'
       WHERE token_hash = ${tokenHash} AND revoked_at IS NULL

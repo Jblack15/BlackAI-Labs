@@ -333,8 +333,11 @@ try {
     "src/routeTree.gen.ts",
     // Build-fix files added during part 2's build repair: the client-only
     // auth stub (served to the client build env instead of the real server
-    // auth.ts) and the vite config whose load hook does the swap.
+    // auth.ts), the vite config whose load hook does the swap, and the
+    // server-only auth lib itself (gained the randomToken/sha256Hex helpers so
+    // the /api/auth route files no longer import node:crypto client-side).
     "src/lib/auth.client-stub.ts",
+    "src/lib/auth.ts",
     "vite.config.ts",
   ];
   const fabGrep = ["src/lib/auth.ts", "src/routes/api/auth/login.ts", "src/routes/api/auth/logout.ts", "src/routes/api/auth/status.ts", "scripts/set-owner-pin.ts", "src/components/OwnerGate.tsx", "src/components/Header.tsx", "src/routes/login.tsx"];
