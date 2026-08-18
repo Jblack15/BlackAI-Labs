@@ -1,5 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
+import { requireOwnerMiddleware } from "~/lib/auth";
+import { OwnerGate } from "~/components/OwnerGate";
 import { useState, useMemo, useEffect } from "react";
 import {
   ALL_PROPERTY_TYPES,
@@ -53,7 +55,7 @@ interface BuyerFormData {
 
 // --- Server Functions ---
 
-const fetchBuyers = createServerFn({ method: "GET" }).handler(async () => {
+const fetchBuyers = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] }).handler(async () => {
   try {
     const { sql } = await import("~/db");
     const rows = (await sql`
@@ -71,7 +73,7 @@ const fetchBuyers = createServerFn({ method: "GET" }).handler(async () => {
 });
 
 // Lightweight lead list for the auto-match picker (real leads only).
-const fetchLeadsForMatch = createServerFn({ method: "GET" }).handler(async () => {
+const fetchLeadsForMatch = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] }).handler(async () => {
   try {
     const { sql } = await import("~/db");
     const rows = (await sql`
@@ -103,7 +105,7 @@ const fetchLeadsForMatch = createServerFn({ method: "GET" }).handler(async () =>
   }
 });
 
-const runAutoMatch = createServerFn({ method: "POST" })
+const runAutoMatch = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
   .validator((data: unknown) => data as { leadId: string })
   .handler(async ({ data }) => {
     try {
@@ -149,7 +151,7 @@ interface MatchableDealRow {
 // numbers (ARV / MAO / repairs) has no price to match on, so it is not shown —
 // and when nothing qualifies the UI renders an honest empty state. Every field
 // traces to a real database row (audit #11).
-const fetchMatchableDeals = createServerFn({ method: "GET" }).handler(async () => {
+const fetchMatchableDeals = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] }).handler(async () => {
   try {
     const { sql } = await import("~/db");
     const rows = (await sql`
@@ -196,7 +198,7 @@ const fetchMatchableDeals = createServerFn({ method: "GET" }).handler(async () =
   }
 });
 
-const addBuyerDb = createServerFn({ method: "POST" })
+const addBuyerDb = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
   .validator((data: unknown) => {
     const d = data as BuyerFormData;
     if (!d.name) throw new Error("Name is required");
@@ -217,7 +219,7 @@ const addBuyerDb = createServerFn({ method: "POST" })
     return rowToMarketplaceBuyer(rows[0]);
   });
 
-const updateBuyerDb = createServerFn({ method: "POST" })
+const updateBuyerDb = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
   .validator((data: unknown) => {
     const d = data as BuyerFormData & { id: string };
     if (!d.id || !d.name) throw new Error("id and name are required");
@@ -244,7 +246,7 @@ const updateBuyerDb = createServerFn({ method: "POST" })
 // "Mark verified" — records a real human verification timestamp and who did it
 // (the operator is stamped into the audit trail via outreach_audit_log-style
 // operator convention; no auth yet so the source is the buyers UI).
-const markBuyerVerified = createServerFn({ method: "POST" })
+const markBuyerVerified = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
   .validator((data: unknown) => data as { id: string; operator?: string })
   .handler(async ({ data }) => {
     const { sql } = await import("~/db");
@@ -276,7 +278,7 @@ const markBuyerVerified = createServerFn({ method: "POST" })
     return updated;
   });
 
-const deleteBuyerDb = createServerFn({ method: "POST" })
+const deleteBuyerDb = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
   .validator((data: unknown) => {
     const d = data as { id: string };
     if (!d.id) throw new Error("id is required");
@@ -1822,7 +1824,11 @@ function BuyersPage() {
 }
 
 export const Route = createFileRoute("/buyers")({
-  component: BuyersPage,
+  component: () => (
+    <OwnerGate>
+      <BuyersPage />
+    </OwnerGate>
+  ),
   head: () => ({
     meta: [
       { title: "Buyer Marketplace — DealForge Properties" },

@@ -5,8 +5,10 @@
 // pre-existing auth_credentials row + all auth_sessions rows + lead count;
 // try/finally restoring everything; ok() counters; exit code 0 iff 0 fails.
 //
-// Scope: spec §8 sections 1–13. Section 14 (routes-after-publish, needs the
-// OwnerGate UI + /login page from PH1-B14 part 2) is a clearly-marked STUB.
+// Scope: spec §8 sections 1–14. Section 14 (routes-after-publish: OwnerGate
+// route checks + /login page) was completed in PH1-B14 part 2 — it runs the
+// real route checks against the served app (dev server 3001 pre-publish, or
+// the published build on 3000 via VERIFY_BASE_URL after the lead publishes).
 //
 // IMPORTANT (spec §3): this script uses a TEMP test PIN (TestPin-8chars!) —
 // never the real owner PIN — and deletes the temp credential + every session
@@ -304,15 +306,33 @@ try {
     }
     ok("df_session absent from dist/client bundles", leaked === "", leaked || "no match");
   } else {
-    ok("df_session absent from dist/client bundles (no dist/client in tree yet — publish happens in part 2)", true, "dist/client not present");
+    ok("df_session absent from dist/client bundles (no dist/client in tree yet — build/publish first for the bundle grep)", true, "dist/client not present");
   }
-  // Expected working-tree change set for part 1: the 7 new files + the
-  // AUTO-GENERATED route manifest (routeTree.gen.ts) which the dev server
-  // rewrites when new route files are added (the manifest is tracked and was
-  // committed by prior PRs #23/#28/#30 too; part 2 will extend it again with
-  // login.tsx). Everything else must stay untouched — especially UI/public pages.
-  const newFiles = ["src/db/migrations/022_auth_rbac.sql", "src/lib/auth.ts", "src/routes/api/auth/login.ts", "src/routes/api/auth/logout.ts", "src/routes/api/auth/status.ts", "scripts/set-owner-pin.ts", "scripts/verify-b14.ts", "src/routeTree.gen.ts"];
-  const fabGrep = ["src/lib/auth.ts", "src/routes/api/auth/login.ts", "src/routes/api/auth/logout.ts", "src/routes/api/auth/status.ts", "scripts/set-owner-pin.ts"];
+  // Expected working-tree change set for PH1-B14 part 2 (UI wiring): the two
+  // new UI files, the Header, the 9 owner route files (OwnerGate wrap +
+  // middleware on every createServerFn), the completed verify script, and the
+  // AUTO-GENERATED route manifest (routeTree.gen.ts — the dev server rewrites
+  // it when login.tsx is added; it was committed by prior PRs #23/#28/#30
+  // too). Everything else must stay untouched — especially public pages.
+  // When run on clean main post-merge the tree is empty, which trivially
+  // satisfies "no unexpected files" — the check's actual purpose.
+  const newFiles = [
+    "src/components/Header.tsx",
+    "src/components/OwnerGate.tsx",
+    "src/routes/login.tsx",
+    "src/routes/approvals.tsx",
+    "src/routes/buyers.tsx",
+    "src/routes/calculator.tsx",
+    "src/routes/command-center.tsx",
+    "src/routes/contracts.tsx",
+    "src/routes/crm.tsx",
+    "src/routes/crm_.import.tsx",
+    "src/routes/dashboard.tsx",
+    "src/routes/settings.tsx",
+    "scripts/verify-b14.ts",
+    "src/routeTree.gen.ts",
+  ];
+  const fabGrep = ["src/lib/auth.ts", "src/routes/api/auth/login.ts", "src/routes/api/auth/logout.ts", "src/routes/api/auth/status.ts", "scripts/set-owner-pin.ts", "src/components/OwnerGate.tsx", "src/components/Header.tsx", "src/routes/login.tsx"];
   const fabHits = fabGrep.filter((f) => /insert\s+into\s+(buyers|contracts)/i.test(readFileSync(join(process.cwd(), f), "utf8")));
   ok("no fabricated insert into buyers/contracts in new files", fabHits.length === 0, fabHits.join(", ") || "clean");
   // -uall: list untracked FILES individually (plain --porcelain collapses an
@@ -330,7 +350,9 @@ try {
   const branchDiff = String(execSync("git diff --name-only origin/main...HEAD --", { cwd: process.cwd() })).trim();
   for (const f of branchDiff.split("\n").filter(Boolean)) changed.add(f);
   const unexpected = [...changed].filter((f) => !newFiles.includes(f));
-  ok("changed-file set = expected files only (7 new + route manifest; public/UI pages untouched)", unexpected.length === 0 && changed.size > 0, [...changed].join(", ") || "none");
+  const currentBranch = String(execSync("git branch --show-current", { cwd: process.cwd() })).trim();
+  const onMainBranch = currentBranch === "main" || currentBranch === "master";
+  ok("changed-file set = expected files only (PH1-B14 part-2 set; clean main passes)", unexpected.length === 0 && (changed.size > 0 || onMainBranch), [...changed].join(", ") || "none");
 
   console.log("== 13. DB pristine (checked after cleanup) ==");
 } finally {
@@ -366,14 +388,43 @@ ok("no verify-created auth audit rows remain", authAuditLeft.n === 0, `n=${authA
 const leadFinal = ((await sql`SELECT COUNT(*)::int AS n FROM leads`)[0]) as { n: number };
 ok("lead count unchanged", leadFinal.n === leadCountStart, `n=${leadFinal.n}`);
 
-console.log("== 14. Routes after publish (STUB — completed in PH1-B14 part 2) ==");
-// Part 2 (OwnerGate UI + login page + route wrapping) implements these checks
-// after publish; they are deliberately NOT run here (part 1 ships no UI):
-//   - /, /login, /sell/tax-delinquent, /get-offer -> 200 public
-//   - /crm without cookie -> 200 with SSR HTML containing "Sign in required"
-//     and NOT containing any real lead PII
-//   - /api/auth/status -> {authenticated:false}
-ok("section 14 deferred to part 2 (needs OwnerGate + login page UI)", true, "stub — implemented in PH1-B14 part 2");
+console.log("== 14. Routes after publish (OwnerGate + /login — implemented PH1-B14 part 2) ==");
+// Public routes stay open (spec §1 matrix): marketing pages + the login page
+// itself (auth protocol routes are public by design).
+const publicRoutes = ["/", "/login", "/sell/tax-delinquent", "/get-offer"];
+for (const p of publicRoutes) {
+  const res = await fetch(`${BASE}${p}`, { signal: AbortSignal.timeout(10_000) });
+  ok(`${p} -> 200 public`, res.status === 200, `status=${res.status}`);
+}
+// Owner routes WITHOUT a cookie: 200 with SSR HTML containing the gate panel
+// ("Sign in required") and NOT containing any real lead PII. OwnerGate renders
+// the panel synchronously during SSR (spec §4/§10 — loading = panel, never a
+// data flash), and data effects only mount client-side after authentication.
+// Probe one real lead from the live DB: its phone/full_name/email must not
+// appear anywhere in the owner pages' SSR HTML (the gate panel + public chrome
+// contain no PII).
+const piiProbe = (await sql`
+  SELECT phone, full_name, email FROM leads
+  WHERE full_name IS NOT NULL AND full_name <> '' AND phone IS NOT NULL AND phone <> ''
+  LIMIT 1
+`) as Array<{ phone: string; full_name: string; email: string | null }>;
+const probe = piiProbe[0] ?? null;
+ok("PII probe lead available in live DB", !!probe, probe ? "probe ready (name+phone; value not printed)" : "no lead with name+phone — PII needles empty");
+const piiNeedles: string[] = [];
+if (probe) {
+  piiNeedles.push(probe.phone, probe.full_name);
+  if (probe.email) piiNeedles.push(probe.email);
+}
+for (const p of ["/crm", "/dashboard", "/command-center", "/approvals"]) {
+  const res = await fetch(`${BASE}${p}`, { signal: AbortSignal.timeout(10_000) });
+  const html = await res.text();
+  ok(`${p} without cookie -> 200`, res.status === 200, `status=${res.status}`);
+  ok(`${p} SSR HTML contains "Sign in required"`, html.includes("Sign in required"));
+  const leaked = piiNeedles.filter((n) => n && html.includes(n));
+  ok(`${p} SSR HTML contains no real lead PII`, leaked.length === 0, leaked.length ? `LEAKED ${leaked.join(", ")}` : "clean");
+}
+const stAnon = await api("/api/auth/status", {});
+ok("/api/auth/status without cookie -> {authenticated:false}", stAnon.body.authenticated === false, JSON.stringify(stAnon.body));
 
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

@@ -1,6 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, useCallback, useMemo, useEffect } from "react";
 import { createServerFn } from "@tanstack/react-start";
+import { requireOwnerMiddleware } from "~/lib/auth";
+import { OwnerGate } from "~/components/OwnerGate";
 import {
   computeMatch,
   type Buyer,
@@ -20,7 +22,11 @@ export const Route = createFileRoute("/calculator")({
       },
     ],
   }),
-  component: Calculator,
+  component: () => (
+    <OwnerGate>
+      <Calculator />
+    </OwnerGate>
+  ),
 });
 
 // --- Deal analysis persistence (audit #10, PH1-B9) ---
@@ -182,7 +188,7 @@ interface SaveAnalysisInput {
   analysis_status?: string;
 }
 
-const saveDealAnalysis = createServerFn({ method: "POST" })
+const saveDealAnalysis = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
   .validator((data: unknown) => {
     const d = data as SaveAnalysisInput;
     if (!Number.isFinite(d.arv) || !Number.isFinite(d.repairs) || !Number.isFinite(d.max_offer)) {
@@ -216,7 +222,7 @@ const saveDealAnalysis = createServerFn({ method: "POST" })
     return rowToAnalysis(rows[0]);
   });
 
-const listDealAnalyses = createServerFn({ method: "GET" }).handler(async () => {
+const listDealAnalyses = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] }).handler(async () => {
   const { sql } = await import("~/db");
   const rows = (await sql`
     SELECT ${ANALYSIS_COLUMNS}
@@ -227,7 +233,7 @@ const listDealAnalyses = createServerFn({ method: "GET" }).handler(async () => {
   return rows.map(rowToAnalysis);
 });
 
-const getDealAnalysis = createServerFn({ method: "POST" })
+const getDealAnalysis = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
   .validator((data: unknown) => data as { id: string })
   .handler(async ({ data }) => {
     const { sql } = await import("~/db");
@@ -266,7 +272,7 @@ interface LeadContext {
   } | null;
 }
 
-const getLeadForAnalysis = createServerFn({ method: "POST" })
+const getLeadForAnalysis = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
   .validator((data: unknown) => data as { id: string })
   .handler(async ({ data }) => {
     try {
@@ -285,7 +291,7 @@ const getLeadForAnalysis = createServerFn({ method: "POST" })
     }
   });
 
-const fetchBuyersForMatch = createServerFn({ method: "GET" }).handler(async () => {
+const fetchBuyersForMatch = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] }).handler(async () => {
   try {
     const { sql } = await import("~/db");
     const { rowToBuyer } = await import("~/lib/buyer-match");

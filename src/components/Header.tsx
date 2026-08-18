@@ -1,9 +1,17 @@
 import { Link } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { useState, useEffect } from "react";
+import { requireOwnerMiddleware } from "~/lib/auth";
+import { useOwnerSession } from "~/components/OwnerGate";
 // Pending-approvals count for the nav badge (PH1-B11). 0 is the correct
 // production state until a real offer/contract/spend/change is requested.
-const fetchPendingApprovalCount = createServerFn({ method: "GET" }).handler(async () => {
+// Guarded by requireOwnerMiddleware (PH1-B14): with no owner session the call
+// 401s {authRequired:true} and the badge stays hidden (count 0) — the badge is
+// owner data and must never render for anonymous visitors.
+const fetchPendingApprovalCount = createServerFn({
+  method: "GET",
+  middleware: [requireOwnerMiddleware],
+}).handler(async () => {
   try {
     const { pendingApprovalCount } = await import("~/lib/approvals");
     return await pendingApprovalCount();
@@ -15,7 +23,7 @@ function ApprovalBadge() {
   const [count, setCount] = useState(0);
   useEffect(() => {
     fetchPendingApprovalCount()
-      .then((n) => setCount(n ?? 0))
+      .then((n) => setCount(typeof n === "number" ? n : 0))
       .catch(() => {});
   }, []);
   if (count === 0) return null;
@@ -26,6 +34,13 @@ function ApprovalBadge() {
   );
 }
 export function Header() {
+  // PH1-B14 honesty fix: owner links (and the approvals badge) render ONLY for
+  // an authenticated owner. Anonymous/loading visitors get the marketing nav
+  // (Sell Your Home dropdown + Get Your Cash Offer CTA) plus a muted
+  // "Owner sign-in" link to /login. This is UX only — every owner server fn
+  // enforces the session server-side regardless of what the header shows.
+  const session = useOwnerSession();
+  const authed = session === "authenticated";
   return (
     <header className="sticky top-0 z-50 border-b border-navy-700 bg-navy-900/95 backdrop-blur supports-[backdrop-filter]:bg-navy-900/80">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
@@ -35,49 +50,60 @@ export function Header() {
           </span>
         </Link>
         <nav className="hidden items-center gap-6 md:flex">
-          <Link
-            to="/command-center"
-            className="text-sm font-medium text-gray-300 transition-colors hover:text-white"
-          >
-            Command Center
-          </Link>
-          <Link
-            to="/dashboard"
-            className="text-sm font-medium text-gray-300 transition-colors hover:text-white"
-          >
-            Dashboard
-          </Link>
-          <Link
-            to="/calculator"
-            className="text-sm font-medium text-gray-300 transition-colors hover:text-white"
-          >
-            Deal Calculator
-          </Link>
-          <Link
-            to="/crm"
-            className="text-sm font-medium text-gray-300 transition-colors hover:text-white"
-          >
-            CRM Pipeline
-          </Link>
-          <Link
-            to="/contracts"
-            className="text-sm font-medium text-gray-300 transition-colors hover:text-white"
-          >
-            Contracts
-          </Link>
-          <Link
-            to="/buyers"
-            className="text-sm font-medium text-gray-300 transition-colors hover:text-white"
-          >
-            Buyers
-          </Link>
-          <Link
-            to="/approvals"
-            className="flex items-center text-sm font-medium text-gray-300 transition-colors hover:text-white"
-          >
-            Approvals
-            <ApprovalBadge />
-          </Link>
+          {authed ? (
+            <>
+              <Link
+                to="/command-center"
+                className="text-sm font-medium text-gray-300 transition-colors hover:text-white"
+              >
+                Command Center
+              </Link>
+              <Link
+                to="/dashboard"
+                className="text-sm font-medium text-gray-300 transition-colors hover:text-white"
+              >
+                Dashboard
+              </Link>
+              <Link
+                to="/calculator"
+                className="text-sm font-medium text-gray-300 transition-colors hover:text-white"
+              >
+                Deal Calculator
+              </Link>
+              <Link
+                to="/crm"
+                className="text-sm font-medium text-gray-300 transition-colors hover:text-white"
+              >
+                CRM Pipeline
+              </Link>
+              <Link
+                to="/contracts"
+                className="text-sm font-medium text-gray-300 transition-colors hover:text-white"
+              >
+                Contracts
+              </Link>
+              <Link
+                to="/buyers"
+                className="text-sm font-medium text-gray-300 transition-colors hover:text-white"
+              >
+                Buyers
+              </Link>
+              <Link
+                to="/approvals"
+                className="flex items-center text-sm font-medium text-gray-300 transition-colors hover:text-white"
+              >
+                Approvals
+                <ApprovalBadge />
+              </Link>
+            </>
+          ) : (
+            <Link
+              to="/login"
+              className="text-sm font-medium text-gray-500 transition-colors hover:text-gray-300"
+            >
+              Owner sign-in
+            </Link>
+          )}
           <div className="group relative">
             <button className="flex items-center gap-1 text-sm font-medium text-gray-300 transition-colors hover:text-white">
               Sell Your Home

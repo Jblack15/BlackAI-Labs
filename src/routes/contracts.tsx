@@ -1,5 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
+import { requireOwnerMiddleware } from "~/lib/auth";
+import { OwnerGate } from "~/components/OwnerGate";
 import { useState, useEffect, useMemo } from "react";
 import type { ContractDetail, ContractListItem, ClosingChecklistItem, AttentionItem } from "~/lib/closing";
 
@@ -145,7 +147,7 @@ function fmtDate(d: string | null | undefined): string {
 }
 
 // --- Server Functions (builder) ---
-const fetchContractLeads = createServerFn({ method: "GET" }).handler(async () => {
+const fetchContractLeads = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] }).handler(async () => {
   try {
     const { sql } = await import("~/db");
     const rows = (await sql`
@@ -166,7 +168,7 @@ const fetchContractLeads = createServerFn({ method: "GET" }).handler(async () =>
   }
 });
 
-const fetchBuyersForContracts = createServerFn({ method: "GET" }).handler(async () => {
+const fetchBuyersForContracts = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] }).handler(async () => {
   try {
     const { sql } = await import("~/db");
     const rows = (await sql`
@@ -181,7 +183,7 @@ const fetchBuyersForContracts = createServerFn({ method: "GET" }).handler(async 
   }
 });
 
-const saveContractDb = createServerFn({ method: "POST" })
+const saveContractDb = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
   .validator((data: unknown) => {
     const d = data as {
       lead_id: string;
@@ -221,7 +223,7 @@ const saveContractDb = createServerFn({ method: "POST" })
   });
 
 // --- Server Functions (closing workflow, PH1-B12) ---
-const fetchContracts = createServerFn({ method: "GET" }).handler(async () => {
+const fetchContracts = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] }).handler(async () => {
   try {
     const { listContracts } = await import("~/lib/closing");
     return await listContracts();
@@ -230,7 +232,7 @@ const fetchContracts = createServerFn({ method: "GET" }).handler(async () => {
   }
 });
 
-const fetchContractDetail = createServerFn({ method: "GET" })
+const fetchContractDetail = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] })
   .validator((d: unknown) => d as { contractId: string })
   .handler(async ({ data }) => {
     try {
@@ -241,7 +243,7 @@ const fetchContractDetail = createServerFn({ method: "GET" })
     }
   });
 
-const toggleChecklist = createServerFn({ method: "POST" })
+const toggleChecklist = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
   .validator((d: unknown) => d as { itemId: string; done: boolean })
   .handler(async ({ data }) => {
     try {
@@ -252,7 +254,7 @@ const toggleChecklist = createServerFn({ method: "POST" })
     }
   });
 
-const saveClosingDetails = createServerFn({ method: "POST" })
+const saveClosingDetails = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
   .validator((d: unknown) => {
     const x = d as { contractId: string; titleCompany?: string; escrowAccount?: string; expectedCloseDate?: string; closeDate?: string };
     if (!x.contractId) throw new Error("contractId is required");
@@ -281,7 +283,7 @@ const saveClosingDetails = createServerFn({ method: "POST" })
  * the contract, record the payment; otherwise fire the approval request and
  * tell the owner to decide on /approvals (then press Record again).
  */
-const recordAssignmentFlow = createServerFn({ method: "POST" })
+const recordAssignmentFlow = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
   .validator((d: unknown) => d as { contractId: string; amountCents: number })
   .handler(async ({ data }) => {
     try {
@@ -1329,7 +1331,11 @@ function ContractsPage() {
 }
 
 export const Route = createFileRoute("/contracts")({
-  component: ContractsPage,
+  component: () => (
+    <OwnerGate>
+      <ContractsPage />
+    </OwnerGate>
+  ),
   head: () => ({
     meta: [
       { title: "Contracts & Closing — DealForge Properties" },

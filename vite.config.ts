@@ -1,8 +1,39 @@
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import tsConfigPaths from "vite-tsconfig-paths";
+
+// PH1-B14 part 2: keep the SERVER-ONLY auth module out of client bundles.
+// src/lib/auth.ts (node:crypto / node:util / neon) is statically imported by
+// src/components/Header.tsx (its createServerFn middleware option survives the
+// client transform) and by the /api/auth/* route files (their top-level
+// imports survive client-side). Bundling it would fail the client build
+// ("promisify" is not exported by __vite-browser-external) and would leak the
+// df_session cookie name to every visitor (spec §12). This transform hook
+// rewrites the surviving `~/lib/auth` import to src/lib/auth.client-stub.ts
+// for the CLIENT environment only; the server + SSR environments are untouched
+// and keep resolving the real auth.ts, so the auth protocol and the owner
+// middleware run the real code. A plain resolveId hook does NOT work here:
+// TanStack Start's own (enforce-pre) resolveId resolves `~/lib/auth` before
+// any normal-priority hook sees it (verified during B14 part 2 — the import
+// only ever reached a transform hook). Route files are unaffected: their
+// transforms strip the auth import entirely, and this rewrite only fires when
+// the import survives (Header + API routes).
+const authClientStub: Plugin = {
+  name: "dealforge:auth-client-stub",
+  transform(code, id) {
+    if (this.environment?.name !== "client") return null;
+    if (id.includes("/src/components/Header.tsx") || id.includes("/src/routes/api/auth/")) {
+      const re = /from\s+["']~\/lib\/auth["']/g;
+      if (re.test(code)) {
+        const stub = `${import.meta.dirname}/src/lib/auth.client-stub.ts`;
+        return { code: code.replace(re, `from "${stub}"`), map: null };
+      }
+    }
+    return null;
+  },
+};
 
 export default defineConfig({
   server: {
@@ -30,6 +61,7 @@ export default defineConfig({
     },
   },
   plugins: [
+    authClientStub,
     tailwindcss(),
     tsConfigPaths({
       projects: ["./tsconfig.json"],

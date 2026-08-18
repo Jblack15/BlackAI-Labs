@@ -1,5 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
+import { requireOwnerMiddleware } from "~/lib/auth";
+import { OwnerGate } from "~/components/OwnerGate";
 import { useState, useEffect } from "react";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -57,7 +59,7 @@ type AuditRow = {
   created_at: string;
 };
 
-const fetchComplianceSummary = createServerFn({ method: "GET" }).handler(async (): Promise<ComplianceSummary | null> => {
+const fetchComplianceSummary = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] }).handler(async (): Promise<ComplianceSummary | null> => {
   try {
     const { getComplianceSummary } = await import("~/lib/compliance");
     return await getComplianceSummary();
@@ -66,7 +68,7 @@ const fetchComplianceSummary = createServerFn({ method: "GET" }).handler(async (
   }
 });
 
-const fetchAuditLog = createServerFn({ method: "GET" }).handler(async (): Promise<AuditRow[]> => {
+const fetchAuditLog = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] }).handler(async (): Promise<AuditRow[]> => {
   try {
     const { listRecentAuditLog } = await import("~/lib/compliance");
     return await listRecentAuditLog(15);
@@ -75,7 +77,7 @@ const fetchAuditLog = createServerFn({ method: "GET" }).handler(async (): Promis
   }
 });
 
-const saveIdentity = createServerFn({ method: "POST" })
+const saveIdentity = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
   .validator((data: unknown) => data as { business_name?: string; phone?: string; website?: string; return_address?: string; email?: string })
   .handler(async ({ data }) => {
     try {
@@ -381,7 +383,11 @@ function SettingsPage() {
 }
 
 export const Route = createFileRoute("/settings")({
-  component: SettingsPage,
+  component: () => (
+    <OwnerGate>
+      <SettingsPage />
+    </OwnerGate>
+  ),
   head: () => ({
     meta: [
       { title: "Settings — DealForge Properties" },
