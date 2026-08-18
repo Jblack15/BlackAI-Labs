@@ -331,6 +331,11 @@ try {
     "src/routes/settings.tsx",
     "scripts/verify-b14.ts",
     "src/routeTree.gen.ts",
+    // Build-fix files added during part 2's build repair: the client-only
+    // auth stub (served to the client build env instead of the real server
+    // auth.ts) and the vite config whose load hook does the swap.
+    "src/lib/auth.client-stub.ts",
+    "vite.config.ts",
   ];
   const fabGrep = ["src/lib/auth.ts", "src/routes/api/auth/login.ts", "src/routes/api/auth/logout.ts", "src/routes/api/auth/status.ts", "scripts/set-owner-pin.ts", "src/components/OwnerGate.tsx", "src/components/Header.tsx", "src/routes/login.tsx"];
   const fabHits = fabGrep.filter((f) => /insert\s+into\s+(buyers|contracts)/i.test(readFileSync(join(process.cwd(), f), "utf8")));

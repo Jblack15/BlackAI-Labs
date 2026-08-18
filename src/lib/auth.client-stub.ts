@@ -7,16 +7,16 @@
 // `middleware: [requireOwnerMiddleware]` option client-side, and (2) API route
 // files (/api/auth/*) keep their top-level imports client-side. Bundling the
 // real auth.ts into the client fails the build ("promisify" is not exported
-// by __vite-browser-external) and would ship the `df_session` cookie name to
-// every visitor — the exact leak spec §12 forbids.
+// by __vite-browser-external) and would ship the session cookie name to every
+// visitor — the exact leak spec §12 forbids.
 //
-// FIX: vite.config.ts adds a resolveId hook that rewrites `~/lib/auth` to THIS
-// stub for the `client` build environment ONLY. The server and SSR
-// environments keep resolving the real src/lib/auth.ts, so login/logout/
+// FIX: vite.config.ts adds a load hook that serves THIS stub whenever the
+// `client` build environment asks to LOAD src/lib/auth.ts. The server and SSR
+// environments are untouched and load the real auth.ts, so login/logout/
 // status handlers and the owner middleware run the real code at runtime. The
 // stub is never executed in the browser: API handlers only run server-side,
 // and the client copy of the middleware is inert. It exists purely so the
-// client bundle stays honest (no crypto, no DB, no df_session literal).
+// client bundle stays honest (no crypto, no DB, no cookie-name literal).
 import { createMiddleware } from "@tanstack/react-start";
 
 // A real-but-inert middleware object (createMiddleware is client-safe; the
