@@ -1,6 +1,21 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { useState, useEffect, useMemo } from "react";
+import type { ContractDetail, ContractListItem, ClosingChecklistItem, AttentionItem } from "~/lib/closing";
+
+// DealForge — /contracts: two tabs.
+//   1. Closing Workflow (PH1-B12): the last mile of the deal lifecycle —
+//      contract → title → closed → assignment paid. Lists real contracts from
+//      the DB (0 today is the correct production state), with a status
+//      stepper, title/escrow fields, close dates, deadlines, an audit-logged
+//      closing checklist, a profit panel (honest "—" until the assignment fee
+//      is actually recorded) and a B11-gated "Record assignment paid" button
+//      (fires the assignment approval request → owner decides on /approvals →
+//      then records). The platform only TRACKS proceeds — real money flows
+//      title company → owner's bank.
+//   2. Contract Builder: the print-ready purchase/assignment document
+//      generator (preserved as-is; its save now writes status 'new' — the
+//      closing vocabulary's starting state).
 
 // --- Types ---
 
@@ -73,6 +88,31 @@ const STAGE_LABELS: Record<string, string> = {
   contract: "Contract Signed",
 };
 
+/** The closing vocabulary in stepper order (mirrors migration 020's CHECK). */
+const CLOSING_STATUSES = [
+  "new", "title_open", "title_clear", "docs_sent", "docs_signed", "funded", "closed", "cancelled",
+] as const;
+const STATUS_LABELS: Record<string, string> = {
+  new: "New",
+  title_open: "Title Open",
+  title_clear: "Title Clear",
+  docs_sent: "Docs Sent",
+  docs_signed: "Docs Signed",
+  funded: "Funded",
+  closed: "Closed",
+  cancelled: "Cancelled",
+};
+const STATUS_BADGE: Record<string, string> = {
+  new: "bg-navy-700 text-gray-300",
+  title_open: "bg-blue-500/15 text-blue-400",
+  title_clear: "bg-blue-500/15 text-blue-400",
+  docs_sent: "bg-gold-500/15 text-gold-400",
+  docs_signed: "bg-gold-500/15 text-gold-400",
+  funded: "bg-emerald-500/15 text-emerald-400",
+  closed: "bg-emerald-500/20 text-emerald-300",
+  cancelled: "bg-red-500/15 text-red-400",
+};
+
 // --- Helpers ---
 function rowToBuyer(row: BuyerRow): Buyer {
   const c = row.buying_criteria || {};
@@ -93,7 +133,18 @@ function rowToBuyer(row: BuyerRow): Buyer {
   };
 }
 
-// --- Server Functions ---
+function fmtDollars(cents: number | null | undefined): string {
+  if (cents === null || cents === undefined) return "—";
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
+}
+function fmtDate(d: string | null | undefined): string {
+  if (!d) return "—";
+  const dt = new Date(`${d}T12:00:00`);
+  if (Number.isNaN(dt.getTime())) return d;
+  return dt.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+}
+
+// --- Server Functions (builder) ---
 const fetchContractLeads = createServerFn({ method: "GET" }).handler(async () => {
   try {
     const { sql } = await import("~/db");
@@ -157,7 +208,7 @@ const saveContractDb = createServerFn({ method: "POST" })
         ${data.lead_id},
         ${data.buyer_id || null},
         ${data.contract_type},
-        'draft',
+        'new',
         ${data.purchase_price || null},
         ${data.assignment_fee || null},
         ${data.earnest_money || 1000},
@@ -167,6 +218,84 @@ const saveContractDb = createServerFn({ method: "POST" })
       RETURNING id
     `;
     return { success: true as const, id: (result[0] as { id: string }).id };
+  });
+
+// --- Server Functions (closing workflow, PH1-B12) ---
+const fetchContracts = createServerFn({ method: "GET" }).handler(async () => {
+  try {
+    const { listContracts } = await import("~/lib/closing");
+    return await listContracts();
+  } catch {
+    return [] as ContractListItem[];
+  }
+});
+
+const fetchContractDetail = createServerFn({ method: "GET" })
+  .validator((d: unknown) => d as { contractId: string })
+  .handler(async ({ data }) => {
+    try {
+      const { getContractDetail } = await import("~/lib/closing");
+      return await getContractDetail(data.contractId);
+    } catch {
+      return null;
+    }
+  });
+
+const toggleChecklist = createServerFn({ method: "POST" })
+  .validator((d: unknown) => d as { itemId: string; done: boolean })
+  .handler(async ({ data }) => {
+    try {
+      const { updateClosingChecklistItem } = await import("~/lib/closing");
+      return await updateClosingChecklistItem(data.itemId, data.done, "owner");
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : "Toggle failed" };
+    }
+  });
+
+const saveClosingDetails = createServerFn({ method: "POST" })
+  .validator((d: unknown) => {
+    const x = d as { contractId: string; titleCompany?: string; escrowAccount?: string; expectedCloseDate?: string; closeDate?: string };
+    if (!x.contractId) throw new Error("contractId is required");
+    return x;
+  })
+  .handler(async ({ data }) => {
+    try {
+      const { updateContractClosing } = await import("~/lib/closing");
+      return await updateContractClosing(
+        data.contractId,
+        {
+          titleCompany: data.titleCompany ?? null,
+          escrowAccount: data.escrowAccount ?? null,
+          expectedCloseDate: data.expectedCloseDate || null,
+          closeDate: data.closeDate || null,
+        },
+        "owner",
+      );
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : "Save failed" };
+    }
+  });
+
+/**
+ * The B11-gated record flow: if an approved 'assignment' approval exists for
+ * the contract, record the payment; otherwise fire the approval request and
+ * tell the owner to decide on /approvals (then press Record again).
+ */
+const recordAssignmentFlow = createServerFn({ method: "POST" })
+  .validator((d: unknown) => d as { contractId: string; amountCents: number })
+  .handler(async ({ data }) => {
+    try {
+      const { hasApproval } = await import("~/lib/approvals");
+      const { recordAssignmentPaid, requestAssignmentApproval } = await import("~/lib/closing");
+      const approved = await hasApproval("assignment", "contract", data.contractId, ["approved"]);
+      if (!approved) {
+        const req = await requestAssignmentApproval(data.contractId, data.amountCents, "owner");
+        return { requested: true as const, ...req };
+      }
+      return await recordAssignmentPaid(data.contractId, data.amountCents, "owner");
+    } catch (e) {
+      return { success: false as const, error: e instanceof Error ? e.message : "Record failed" };
+    }
   });
 
 // --- Default Form Data ---
@@ -184,9 +313,425 @@ function defaultFormData(): ContractFormData {
   };
 }
 
-// --- Components ---
+// ═══════════════════════════════════════════════════════════════════════════
+// Tab 1 — Closing Workflow (PH1-B12)
+// ═══════════════════════════════════════════════════════════════════════════
 
-function ContractsPage() {
+function ClosingWorkflowTab() {
+  const [contracts, setContracts] = useState<ContractListItem[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<ContractDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [feeDraft, setFeeDraft] = useState<string>("15000");
+  const [edit, setEdit] = useState<{ titleCompany: string; escrowAccount: string; expectedCloseDate: string; closeDate: string } | null>(null);
+  const [savedEdit, setSavedEdit] = useState(false);
+
+  const loadList = async () => {
+    const rows = await fetchContracts();
+    setContracts(rows ?? []);
+    if (selectedId && !(rows ?? []).some((c) => c.id === selectedId)) setSelectedId(null);
+    setLoading(false);
+  };
+  const refreshDetail = async (id: string | null = selectedId) => {
+    if (!id) { setDetail(null); return; }
+    const d = await fetchContractDetail({ data: { contractId: id } });
+    setDetail(d);
+    setEdit(d ? { titleCompany: d.titleCompany ?? "", escrowAccount: d.escrowAccount ?? "", expectedCloseDate: d.expectedCloseDate ?? "", closeDate: d.closeDate ?? "" } : null);
+    setSavedEdit(false);
+  };
+  useEffect(() => {
+    loadList();
+  }, []);
+  useEffect(() => {
+    if (selectedId) refreshDetail(selectedId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
+
+  const select = (id: string) => {
+    setSelectedId(id);
+    setMsg(null);
+  };
+
+  const handleToggle = async (item: ClosingChecklistItem) => {
+    setBusy(`chk-${item.id}`);
+    await toggleChecklist({ data: { itemId: item.id, done: !item.done } });
+    await refreshDetail();
+    setBusy(null);
+  };
+
+  const handleSaveDetails = async () => {
+    if (!detail || !edit) return;
+    setBusy("details");
+    const res = await saveClosingDetails({
+      data: {
+        contractId: detail.id,
+        titleCompany: edit.titleCompany,
+        escrowAccount: edit.escrowAccount,
+        expectedCloseDate: edit.expectedCloseDate,
+        closeDate: edit.closeDate,
+      },
+    });
+    if (res.success) {
+      setSavedEdit(true);
+      await refreshDetail();
+    } else {
+      setMsg({ ok: false, text: res.error || "Save failed" });
+    }
+    setBusy(null);
+  };
+
+  const handleRecordAssignment = async () => {
+    if (!detail) return;
+    const amount = Math.round(parseFloat(feeDraft.replace(/[$,]/g, "")) * 100);
+    if (!Number.isFinite(amount) || amount < 0) { setMsg({ ok: false, text: "Enter a valid fee amount." }); return; }
+    setBusy("record");
+    setMsg(null);
+    const res = await recordAssignmentFlow({ data: { contractId: detail.id, amountCents: amount } });
+    if (res.success) {
+      setMsg({ ok: true, text: "Assignment paid recorded — contract closed. Funds flow title company → owner's bank; the platform only tracks proceeds." });
+      await refreshDetail();
+    } else if ("requested" in res && res.requested) {
+      setMsg({
+        ok: true,
+        text: res.duplicate
+          ? "Assignment approval request is already pending — decide it on /approvals, then press Record again."
+          : "Assignment approval requested — approve it on /approvals, then press Record again.",
+      });
+      await refreshDetail();
+    } else {
+      setMsg({ ok: false, text: res.error || "Failed to record" });
+    }
+    setBusy(null);
+  };
+
+  const attentionItems: AttentionItem[] = detail?.attention ?? [];
+
+  return (
+    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Closing Workflow</h1>
+          <p className="mt-1 text-sm text-gray-400">
+            Contract → title → closed → assignment paid. The platform tracks closing details and
+            profit only — real funds flow title company → owner's bank, never through the platform.
+          </p>
+        </div>
+        <span className="rounded-full bg-navy-700 px-3 py-1 text-xs font-medium text-gray-300">
+          {contracts.length} contract{contracts.length === 1 ? "" : "s"}
+        </span>
+      </div>
+
+      {contracts.length === 0 && !loading ? (
+        <div className="rounded-2xl border border-navy-700 bg-navy-800 p-10 text-center">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-navy-700">
+            <svg className="h-8 w-8 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          </div>
+          <h2 className="text-lg font-semibold text-white">No contracts yet</h2>
+          <p className="mx-auto mt-2 max-w-lg text-sm text-gray-400">
+            This is the correct production state — a contract appears here only when a real deal is
+            signed (lead → offer → negotiation → contract). The closing checklist, title tracking and
+            profit panel activate the moment the first contract is created.
+          </p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+          {/* Contract list */}
+          <aside className="w-full shrink-0 lg:w-80">
+            <div className="rounded-2xl border border-navy-700 bg-navy-800 p-3">
+              <p className="px-2 pb-2 pt-1 text-xs font-semibold uppercase tracking-wider text-gray-500">Contracts</p>
+              {loading ? (
+                <p className="p-4 text-sm text-gray-500">Loading contracts…</p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {contracts.map((c) => (
+                    <li key={c.id}>
+                      <button
+                        onClick={() => select(c.id)}
+                        className={`w-full rounded-xl px-3 py-2.5 text-left transition-colors ${
+                          selectedId === c.id
+                            ? "border border-gold-500/30 bg-gold-500/10"
+                            : "border border-transparent hover:bg-navy-700/50"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate text-sm font-medium text-white">
+                            {c.address ?? "—"}
+                          </span>
+                          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${STATUS_BADGE[c.status] ?? "bg-navy-700 text-gray-400"}`}>
+                            {STATUS_LABELS[c.status] ?? c.status}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 truncate text-[11px] text-gray-500">
+                          {c.contractType} · {fmtDate(c.expectedCloseDate)} · {fmtDollars(c.assignmentFeeCents)}
+                        </p>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </aside>
+
+          {/* Detail */}
+          <section className="min-w-0 flex-1">
+            {!detail ? (
+              <div className="rounded-2xl border border-navy-700 bg-navy-800 p-8 text-center text-sm text-gray-500">
+                Select a contract to open its closing workflow.
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* Header */}
+                <div className="rounded-2xl border border-navy-700 bg-navy-800 p-6">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h2 className="text-lg font-semibold text-white">{detail.address ?? "Contract"}</h2>
+                      <p className="mt-0.5 text-xs text-gray-500">
+                        {detail.contractType} contract{detail.campaignName ? ` · campaign: ${detail.campaignName}` : ""}
+                        {detail.leadOutreachStatus ? ` · lead: ${detail.leadOutreachStatus}` : ""}
+                      </p>
+                    </div>
+                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${STATUS_BADGE[detail.status] ?? "bg-navy-700 text-gray-400"}`}>
+                      {STATUS_LABELS[detail.status] ?? detail.status}
+                    </span>
+                  </div>
+
+                  {/* Status stepper */}
+                  <div className="mt-5 flex flex-wrap items-center gap-1">
+                    {CLOSING_STATUSES.map((s, i) => {
+                      const curIdx = CLOSING_STATUSES.indexOf(detail.status as (typeof CLOSING_STATUSES)[number]);
+                      const isDone = curIdx > i;
+                      const isCurrent = curIdx === i;
+                      const isCancelled = detail.status === "cancelled";
+                      return (
+                        <div key={s} className="flex items-center">
+                          <div className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                            isCurrent ? "bg-gold-500 text-navy-900"
+                              : isDone ? "bg-emerald-500/15 text-emerald-400"
+                                : isCancelled ? "bg-navy-700 text-gray-500"
+                                  : "bg-navy-700 text-gray-500"
+                          }`}>
+                            {isDone ? "✓ " : ""}{STATUS_LABELS[s] ?? s}
+                          </div>
+                          {i < CLOSING_STATUSES.length - 1 && <span className="mx-0.5 h-px w-3 bg-navy-600" />}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Attention */}
+                  {attentionItems.length > 0 && (
+                    <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+                      <p className="text-xs font-semibold text-amber-300">Needs attention</p>
+                      <ul className="mt-1 list-inside list-disc text-xs text-amber-200/90">
+                        {attentionItems.map((a, i) => (
+                          <li key={i}>
+                            {a.kind === "checklist"
+                              ? `Overdue: ${a.label} (due ${fmtDate(a.dueDate)})`
+                              : `${a.label} — ${fmtDate(a.date)}`}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+
+                {/* Title / escrow / dates */}
+                <div className="rounded-2xl border border-navy-700 bg-navy-800 p-6">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-400">Title &amp; Escrow</h3>
+                    <button
+                      onClick={handleSaveDetails}
+                      disabled={busy === "details"}
+                      className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-40 ${
+                        savedEdit ? "bg-emerald-500/20 text-emerald-300" : "bg-gold-500 text-navy-900 hover:bg-gold-400"
+                      }`}
+                    >
+                      {savedEdit ? "✓ Saved" : busy === "details" ? "Saving..." : "Save"}
+                    </button>
+                  </div>
+                  {edit && (
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <label className="block">
+                        <span className="mb-1 block text-xs text-gray-400">Title company</span>
+                        <input
+                          value={edit.titleCompany}
+                          onChange={(e) => { setEdit({ ...edit, titleCompany: e.target.value }); setSavedEdit(false); }}
+                          placeholder="e.g. Alamo Title Co."
+                          className="w-full rounded-lg border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-gold-500 focus:outline-none"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-xs text-gray-400">Escrow account</span>
+                        <input
+                          value={edit.escrowAccount}
+                          onChange={(e) => { setEdit({ ...edit, escrowAccount: e.target.value }); setSavedEdit(false); }}
+                          placeholder="escrow / file number"
+                          className="w-full rounded-lg border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-gold-500 focus:outline-none"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-xs text-gray-400">Expected close</span>
+                        <input
+                          type="date"
+                          value={edit.expectedCloseDate}
+                          onChange={(e) => { setEdit({ ...edit, expectedCloseDate: e.target.value }); setSavedEdit(false); }}
+                          className="w-full rounded-lg border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white focus:border-gold-500 focus:outline-none"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-xs text-gray-400">Actual close</span>
+                        <input
+                          type="date"
+                          value={edit.closeDate}
+                          onChange={(e) => { setEdit({ ...edit, closeDate: e.target.value }); setSavedEdit(false); }}
+                          className="w-full rounded-lg border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white focus:border-gold-500 focus:outline-none"
+                        />
+                      </label>
+                    </div>
+                  )}
+                  {detail.closingDeadlines && typeof detail.closingDeadlines === "object" && (
+                    <div className="mt-3 flex flex-wrap gap-2 border-t border-navy-700 pt-3">
+                      {Object.entries(detail.closingDeadlines)
+                        .filter(([, v]) => v !== null && v !== undefined && v !== "")
+                        .map(([k, v]) => (
+                          <span key={k} className="rounded-lg bg-navy-900 px-2.5 py-1 text-[11px] text-gray-400">
+                            {k.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase())}:{" "}
+                            <span className="text-gray-200">{String(v).slice(0, 10)}</span>
+                          </span>
+                        ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Checklist */}
+                <div className="rounded-2xl border border-navy-700 bg-navy-800 p-6">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-400">Closing checklist</h3>
+                    <span className="text-xs text-gray-500">
+                      {detail.checklist.filter((i) => i.done).length}/{detail.checklist.length} done
+                    </span>
+                  </div>
+                  <ul className="mt-3 space-y-1">
+                    {detail.checklist.map((item) => (
+                      <li key={item.id} className="flex items-start gap-3 rounded-xl px-2 py-1.5 hover:bg-navy-900/40">
+                        <button
+                          onClick={() => handleToggle(item)}
+                          disabled={busy === `chk-${item.id}`}
+                          aria-label={`Toggle ${item.label}`}
+                          className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border text-[11px] transition-colors disabled:opacity-40 ${
+                            item.done
+                              ? "border-emerald-500 bg-emerald-500 text-navy-900"
+                              : "border-navy-500 bg-navy-900 text-transparent hover:border-gold-500"
+                          }`}
+                        >
+                          ✓
+                        </button>
+                        <div className="min-w-0 flex-1">
+                          <p className={`text-sm ${item.done ? "text-gray-500 line-through" : "text-gray-200"}`}>{item.label}</p>
+                          {item.dueDate && (
+                            <p className={`text-[11px] ${item.dueDate < new Date().toISOString().split("T")[0] && !item.done ? "text-amber-400" : "text-gray-600"}`}>
+                              due {fmtDate(item.dueDate)}
+                            </p>
+                          )}
+                        </div>
+                        {item.completedAt && (
+                          <span className="shrink-0 text-[10px] text-gray-600">
+                            {item.operator ?? ""} · {new Date(item.completedAt).toLocaleDateString()}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {/* Profit + assignment paid */}
+                <div className="rounded-2xl border border-navy-700 bg-navy-800 p-6">
+                  <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-400">Profit</h3>
+                  <div className="mt-3 grid grid-cols-3 gap-3">
+                    <div className="rounded-xl bg-navy-900/70 p-3">
+                      <p className="text-[11px] text-gray-500">Assignment fee</p>
+                      <p className="mt-0.5 text-lg font-semibold text-white">{fmtDollars(detail.profit.assignmentFeeCents)}</p>
+                    </div>
+                    <div className="rounded-xl bg-navy-900/70 p-3">
+                      <p className="text-[11px] text-gray-500">Platform costs</p>
+                      <p className="mt-0.5 text-lg font-semibold text-white">{fmtDollars(detail.profit.costsCents)}</p>
+                    </div>
+                    <div className="rounded-xl bg-navy-900/70 p-3">
+                      <p className="text-[11px] text-gray-500">Net</p>
+                      <p className={`mt-0.5 text-lg font-semibold ${detail.profit.netCents === null ? "text-gray-500" : "text-emerald-400"}`}>
+                        {fmtDollars(detail.profit.netCents)}
+                      </p>
+                    </div>
+                  </div>
+                  <p className="mt-2 text-[11px] text-gray-600">
+                    {detail.profit.assignmentFeeCents === null
+                      ? "Fee not recorded yet — net shows “—” until the assignment fee is recorded (never a guessed $0)."
+                      : "Net = recorded assignment fee − recorded platform costs (only what is actually recorded counts)."}
+                    {" "}Real deal proceeds flow title company → owner's bank at closing; the platform only tracks.
+                  </p>
+
+                  <div className="mt-4 border-t border-navy-700 pt-4">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <label className="flex items-center gap-2 text-sm text-gray-300">
+                        Fee paid ($)
+                        <input
+                          value={feeDraft}
+                          onChange={(e) => setFeeDraft(e.target.value)}
+                          className="w-28 rounded-lg border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white focus:border-gold-500 focus:outline-none"
+                        />
+                      </label>
+                      <button
+                        onClick={handleRecordAssignment}
+                        disabled={busy === "record" || detail.status === "closed" || detail.status === "cancelled"}
+                        className={`rounded-lg px-5 py-2 text-sm font-semibold transition-colors disabled:opacity-40 ${
+                          detail.status === "closed"
+                            ? "bg-emerald-500/20 text-emerald-300"
+                            : "bg-gold-500 text-navy-900 hover:bg-gold-400"
+                        }`}
+                      >
+                        {detail.status === "closed"
+                          ? "✓ Assignment paid — closed"
+                          : detail.assignmentPending
+                            ? "Approval pending — see /approvals"
+                            : busy === "record"
+                              ? "Working..."
+                              : "Record assignment paid"}
+                      </button>
+                      {detail.assignmentPending && (
+                        <Link to="/approvals" className="text-xs text-gold-400 hover:underline">
+                          Decide the assignment approval →
+                        </Link>
+                      )}
+                      {!detail.assignmentPending && !detail.assignmentApproved && detail.status !== "closed" && (
+                        <span className="text-[11px] text-gray-600">
+                          First press fires the owner approval request; after approval on /approvals, press again to record.
+                        </span>
+                      )}
+                    </div>
+                    {msg && (
+                      <p className={`mt-2 text-xs ${msg.ok ? "text-emerald-400" : "text-red-400"}`}>{msg.text}</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Tab 2 — Contract Builder (preserved document generator)
+// ═══════════════════════════════════════════════════════════════════════════
+
+function ContractBuilderTab() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [buyers, setBuyers] = useState<Buyer[]>([]);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
@@ -750,12 +1295,48 @@ function formatDateOnly(dateStr: string) {
   return d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Page (tab switcher)
+// ═══════════════════════════════════════════════════════════════════════════
+
+function ContractsPage() {
+  const [tab, setTab] = useState<"closing" | "builder">("closing");
+  return (
+    <div className="min-h-dvh bg-navy-950">
+      <div className="border-b border-navy-700 bg-navy-900/60">
+        <div className="mx-auto flex max-w-7xl gap-1 px-4 pt-4 sm:px-6 lg:px-8">
+          {([
+            ["closing", "Closing Workflow"],
+            ["builder", "Contract Builder"],
+          ] as const).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={`rounded-t-lg px-5 py-2.5 text-sm font-semibold transition-colors ${
+                tab === key
+                  ? "border border-b-0 border-navy-700 bg-navy-800 text-gold-400"
+                  : "text-gray-400 hover:text-white"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {tab === "closing" ? <ClosingWorkflowTab /> : <ContractBuilderTab />}
+    </div>
+  );
+}
+
 export const Route = createFileRoute("/contracts")({
   component: ContractsPage,
   head: () => ({
     meta: [
-      { title: "Contracts — DealForge Properties" },
-      { name: "description", content: "Generate and manage real estate purchase and assignment contracts." },
+      { title: "Contracts & Closing — DealForge Properties" },
+      {
+        name: "description",
+        content: "Contract builder and closing workflow — title, escrow, checklist, deadlines, assignment fee and profit tracking.",
+      },
     ],
   }),
 });
