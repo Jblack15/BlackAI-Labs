@@ -37,10 +37,18 @@ let tempAuditId: number | null = null;
 try {
   console.log("== 1. Migration 021 idempotent re-apply ==");
   const migration = readFileSync(join(process.cwd(), "src/db/migrations/021_premium_queue.sql"), "utf8");
-  const stmts = migration
-    .split(";")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0 && !s.startsWith("--"));
+  // Same statement splitting as scripts/apply-migration.ts (semicolon-aware,
+  // dollar-quote aware; comment-prefixed chunks are passed through as-is so the
+  // DROP CONSTRAINT IF EXISTS statement stays attached to its preceding comment).
+  const stmts: string[] = [];
+  let current = "";
+  let inDollarQuote = false;
+  for (let i = 0; i < migration.length; i++) {
+    if (migration.slice(i, i + 2) === "$$") { inDollarQuote = !inDollarQuote; current += "$$"; i++; continue; }
+    if (migration[i] === ";" && !inDollarQuote) { if (current.trim()) stmts.push(current.trim()); current = ""; }
+    else current += migration[i];
+  }
+  if (current.trim()) stmts.push(current.trim());
   for (const stmt of stmts) {
     try {
       await sql.query(stmt);
@@ -83,7 +91,7 @@ try {
   console.log("== 4. Disposition prefills match research (spot-check Wells, Gabriel Trust, Grau) ==");
   const seedByApn = new Map(PREMIUM_13_SEED.map((s) => [s.apn, s]));
   const premiumRows = (await sql`
-    SELECT apn, full_name, property_address, property_zip, disposition_status, disposition_strategy, target_buyer_type, disposition_notes
+    SELECT id, apn, full_name, property_address, property_zip, disposition_status, disposition_strategy, target_buyer_type, disposition_notes
     FROM leads WHERE premium_lead = true
   `) as Array<Record<string, unknown>>;
   const byApn = new Map(premiumRows.map((r) => [String(r.apn), r]));
@@ -132,11 +140,12 @@ try {
     }
   }
   ok("no flipper buyer referenced in any premium disposition", flipperMentioned.length === 0, flipperMentioned.join("; "));
-  // And: premium dispositions never carry a buyer_id link (no such column should be set)
-  const premiumWithBuyer = (await sql`
-    SELECT COUNT(*)::int AS n FROM leads WHERE premium_lead = true AND buyer_id IS NOT NULL
+  // And: no contract references a premium lead (contracts carry the buyer link —
+  // premium leads have no standard buyer fit, so they must have 0 contracts)
+  const premiumWithContract = (await sql`
+    SELECT COUNT(*)::int AS n FROM contracts c JOIN leads l ON l.id = c.lead_id WHERE l.premium_lead = true
   `) as { n: number }[];
-  ok("no premium lead has a linked buyer_id", premiumWithBuyer[0].n === 0, `n=${premiumWithBuyer[0].n}`);
+  ok("no premium lead is referenced by a contract (no flipper buyer linked)", premiumWithContract[0].n === 0, `n=${premiumWithContract[0].n}`);
 
   console.log("== 6. Disposition editor save path (audit row) ==");
   const target = premiumRows[0] as Record<string, unknown>;

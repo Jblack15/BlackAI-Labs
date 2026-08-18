@@ -455,8 +455,12 @@ export async function saveDisposition(
 
     const fieldSummary = changed.join(", ");
     sets.push("disposition_updated_at = now()");
+    // The WHERE placeholder is values.length + 1, NOT sets.length + 1:
+    // sets also contains the literal "disposition_updated_at = now()" above,
+    // so sets.length would be one past the bound parameters and Postgres would
+    // see an unused parameter ("could not determine data type of parameter $N").
     await sql.query(
-      `UPDATE leads SET ${sets.join(", ")}, updated_at = now() WHERE id = $${sets.length + 1} RETURNING id`,
+      `UPDATE leads SET ${sets.join(", ")}, updated_at = now() WHERE id = $${values.length + 1} RETURNING id`,
       [...values, leadId],
     );
 
