@@ -474,6 +474,134 @@ function Next25Panel({ payload }: { payload: Next25Payload }) {
   );
 }
 
+// ── Premium Queue (PH1-B13) — the 13 high-value leads with no flipper fit ──
+// Real researched leads (premium-13-disposition-2026-08-12.md): MAO ≈ EV
+// (near-market ceilings), so the 22 flipper buyers are NEVER matched to them.
+// Dispositions come from the research (ACT NOW → outreach_ready, HOLD → hold,
+// DEPRIORITIZE → deprioritized) and are edited in the CRM lead modal, where
+// every save is audit-logged (channel='disposition').
+interface PremiumQueuePayload {
+  ok: boolean;
+  rows: Array<{
+    id: string;
+    full_name: string;
+    property_address: string;
+    property_city: string;
+    property_state: string;
+    property_zip: string;
+    score: number | null;
+    estimated_mao: number | null;
+    ev: number | null;
+    equity: number | null;
+    foreclosure_factor: string | null;
+    disposition_status: string | null;
+    disposition_strategy: string | null;
+    target_buyer_type: string | null;
+    disposition_notes: string | null;
+  }>;
+}
+const fetchPremiumQueue = createServerFn({ method: "GET" }).handler(async (): Promise<PremiumQueuePayload> => {
+  try {
+    const { getPremiumQueue } = await import("~/lib/premium-queue");
+    const rows = await getPremiumQueue();
+    return { ok: true, rows };
+  } catch {
+    return { ok: false, rows: [] };
+  }
+});
+const DISPOSITION_CHIP: Record<string, string> = {
+  outreach_ready: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300",
+  in_jv_discussion: "border-blue-500/40 bg-blue-500/10 text-blue-300",
+  under_offer: "border-gold-500/40 bg-gold-500/10 text-gold-300",
+  hold: "border-amber-500/40 bg-amber-500/10 text-amber-300",
+  deprioritized: "border-gray-600/40 bg-gray-600/10 text-gray-400",
+  identified: "border-slate-500/40 bg-slate-500/10 text-slate-300",
+};
+function formatUsd(v: number | null | undefined): string {
+  if (v === null || v === undefined) return "—";
+  return `$${Math.round(v).toLocaleString("en-US")}`;
+}
+function PremiumQueuePanel({ payload }: { payload: PremiumQueuePayload }) {
+  return (
+    <div className="mb-10 rounded-xl border border-gold-500/20 bg-navy-800/60 p-6">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-lg font-semibold text-white">Premium Queue</h2>
+        {payload.ok && (
+          <span className="rounded-full border border-gold-500/30 bg-gold-500/10 px-2.5 py-0.5 text-[11px] font-medium text-gold-300">
+            {payload.rows.length} high-value lead{payload.rows.length === 1 ? "" : "s"} — no flipper fit
+          </span>
+        )}
+      </div>
+      {!payload.ok ? (
+        <p className="text-sm text-amber-300">
+          ⚠️ Live database unreachable — the premium queue is unavailable (NOT CONNECTED).
+        </p>
+      ) : payload.rows.length === 0 ? (
+        <p className="text-sm text-gray-400">
+          No premium leads yet — the queue fills in as premium SFR leads are researched.
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1080px] text-left text-sm">
+            <thead>
+              <tr className="border-b border-navy-700 text-xs uppercase tracking-wider text-gray-500">
+                <th className="py-2 pr-3">Owner</th>
+                <th className="py-2 pr-3">Address</th>
+                <th className="py-2 pr-3">ZIP</th>
+                <th className="py-2 pr-3">MAO</th>
+                <th className="py-2 pr-3">EV</th>
+                <th className="py-2 pr-3">Equity</th>
+                <th className="py-2 pr-3">Foreclosure</th>
+                <th className="py-2 pr-3">Strategy</th>
+                <th className="py-2 pr-3">Status</th>
+                <th className="py-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {payload.rows.map((l) => (
+                <tr key={l.id} className="border-b border-navy-700/50 transition-colors hover:bg-navy-800/80">
+                  <td className="py-2 pr-3 font-medium text-white">{l.full_name}</td>
+                  <td className="py-2 pr-3 text-gray-400">{l.property_address}</td>
+                  <td className="py-2 pr-3 text-gray-400">{l.property_zip}</td>
+                  <td className="py-2 pr-3 text-gray-300">{formatUsd(l.estimated_mao)}</td>
+                  <td className="py-2 pr-3 text-gray-400">{formatUsd(l.ev)}</td>
+                  <td className="py-2 pr-3 text-gray-400">{formatUsd(l.equity)}</td>
+                  <td className="py-2 pr-3 text-gray-400">{l.foreclosure_factor || "—"}</td>
+                  <td className="py-2 pr-3">
+                    <span className="block max-w-[260px] truncate text-xs text-gray-500" title={l.disposition_strategy ?? ""}>
+                      {l.disposition_strategy || "—"}
+                    </span>
+                  </td>
+                  <td className="py-2 pr-3">
+                    <span
+                      className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-medium ${DISPOSITION_CHIP[l.disposition_status || ""] || "border-gray-600/40 bg-gray-600/10 text-gray-400"}`}
+                    >
+                      {l.disposition_status || "not dispositioned"}
+                    </span>
+                  </td>
+                  <td className="py-2 text-right">
+                    <Link
+                      to="/crm"
+                      search={{ lead: l.id }}
+                      className="text-xs font-medium text-gold-400 transition-colors hover:text-gold-300"
+                    >
+                      Open in CRM →
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="mt-4 text-xs text-gray-500">
+        MAO ≈ EV for these leads (near-market ceilings, not distressed discounts) — they are NEVER
+        dispatched to the flipper buyers in the buyer database. Dispositions come from the 2026-08-12
+        research and are edited in the CRM lead modal (audit-logged).
+      </p>
+    </div>
+  );
+}
 // ── Color Helpers ──────────────────────────────────────────────────────────
 
 const KPI_COLORS: Record<string, { bg: string; border: string; text: string; glow: string }> = {
@@ -717,6 +845,7 @@ function DashboardPage() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [next25, setNext25] = useState<Next25Payload>({ ok: false, next25: [], queues: [] });
   const [analyzedDeals, setAnalyzedDeals] = useState<AnalyzedDealRow[]>([]);
+  const [premiumQueue, setPremiumQueue] = useState<PremiumQueuePayload>({ ok: false, rows: [] });
 
   useEffect(() => {
     fetchDashboardData()
@@ -737,6 +866,11 @@ function DashboardPage() {
     fetchNext25()
       .then((d) => {
         if (d) setNext25(d);
+      })
+      .catch(() => {});
+    fetchPremiumQueue()
+      .then((d) => {
+        if (d) setPremiumQueue(d);
       })
       .catch(() => {});
     fetchAnalyzedDeals()
@@ -888,6 +1022,7 @@ function DashboardPage() {
 
       {/* ── 1b. Next 25 to Work (PH1-B7) ─────────────────────────────── */}
       <Next25Panel payload={next25} />
+      <PremiumQueuePanel payload={premiumQueue} />
       {/* ── 1c. Analyzed Deals (PH1-B9) ───────────────────────────────── */}
       <AnalyzedDealsPanel deals={analyzedDeals} />
       {/* ── 2. Automation ─────────────────────────────────────────────── */}

@@ -64,6 +64,14 @@ interface Lead {
   seller_notes: string | null;
   seller_summary: string | null;
   seller_summary_updated_at: string | null;
+  // Premium queue + disposition (PH1-B13) — the 13 high-value leads with no
+  // flipper fit. Real researched data only (premium-13-disposition research).
+  premium_lead: boolean;
+  disposition_status: string | null; // identified/outreach_ready/in_jv_discussion/under_offer/hold/deprioritized
+  disposition_strategy: string | null;
+  target_buyer_type: string | null; // investor/developer/licensed_agent_jv/land_assembler/other
+  disposition_notes: string | null;
+  disposition_updated_at: string | null;
 }
 
 interface PipelineStageInfo {
@@ -218,6 +226,8 @@ const fetchLeads = createServerFn({ method: "GET" }).handler(async () => {
         l.mortgage_balance, l.mortgage_lender, l.lien_info, l.last_contact_at,
         l.next_action, l.next_action_due, l.seller_notes,
         l.seller_summary, l.seller_summary_updated_at,
+        l.premium_lead, l.disposition_status, l.disposition_strategy,
+        l.target_buyer_type, l.disposition_notes, l.disposition_updated_at,
         COALESCE(pe.entered_at, l.created_at) AS stage_entered_at
       FROM leads l
       LEFT JOIN LATERAL (
@@ -503,6 +513,19 @@ const saveSellerFields = createServerFn({ method: "POST" })
       return { success: false, error: e instanceof Error ? e.message : "Failed to save seller fields" };
     }
   });
+// Premium disposition (PH1-B13): save disposition fields for a premium lead.
+// Writes ONE outreach_audit_log row (channel='disposition', direction='internal',
+// status='updated') per save. Vocabulary is validated server-side.
+const saveDispositionFields = createServerFn({ method: "POST" })
+  .validator((data: unknown) => data as { leadId: string; fields: Record<string, unknown> })
+  .handler(async ({ data }) => {
+    try {
+      const { saveDisposition } = await import("~/lib/premium-queue");
+      return await saveDisposition(data.leadId, data.fields as never, { operator: "crm-user" });
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : "Failed to save disposition" };
+    }
+  });
 const bulkOutreach = createServerFn({ method: "POST" }).handler(async () => { try { const { startBulkOutreach } = await import("~/lib/outreach"); return await startBulkOutreach(); } catch (e) { return { success: false, started: 0, error: e instanceof Error ? e.message : "Outreach failed" }; } });
 const startEmailOutreach = createServerFn({ method: "POST" }).validator((data: unknown) => data as { leadId: string }).handler(async ({ data }) => { try { const { startEmailOutreach: runDrip } = await import("~/lib/email-outreach"); return await runDrip(data.leadId); } catch (e) { return { success: false, error: e instanceof Error ? e.message : "Email outreach failed" }; } });
 const bulkEmailOutreach = createServerFn({ method: "POST" }).handler(async () => { try { const { startBulkEmailOutreach } = await import("~/lib/email-outreach"); return await startBulkEmailOutreach(); } catch (e) { return { success: false, started: 0, error: e instanceof Error ? e.message : "Email outreach failed" }; } });
@@ -723,6 +746,18 @@ function PriorityBadge({ lead }: { lead: { priority_queue: string | null; score:
     </span>
   );
 }
+// --- Premium badge (PH1-B13) — high-value leads with no flipper fit ---
+function PremiumBadge({ lead }: { lead: { premium_lead: boolean; disposition_status: string | null } }) {
+  if (!lead.premium_lead) return null;
+  return (
+    <span
+      className="inline-block rounded-full border border-gold-500/40 bg-gold-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-gold-300"
+      title={`Premium lead — MAO ≈ EV (near-market ceiling), NO fit with the flipper buyers. Disposition: ${lead.disposition_status || "not dispositioned"}`}
+    >
+      ★ Premium
+    </span>
+  );
+}
 // --- Outreach status badge (PH1-B6) ---
 // Color convention: active states blue/green (progress), terminal states
 // red/gray (absorbing — outreach must stop), follow_up amber (nurture).
@@ -900,6 +935,7 @@ function LeadCard({
         <StatusBadge stage={lead.pipeline_stage} stages={stages} />
       </div>
       <div className="mb-2 flex flex-wrap items-center gap-1.5">
+        <PremiumBadge lead={lead} />
         <PriorityBadge lead={lead} />
         <OutreachStatusBadge status={lead.outreach_status} />
         <TraceBadge status={lead.trace_status} />
@@ -955,6 +991,7 @@ function LeadDetailModal({
   onOutreachStatusChange,
   onMarkTerminal,
   onSaveSellerFields,
+  onSaveDisposition,
   onRequestApproval,
   automationBusy,
   pipelineHistory,
@@ -978,6 +1015,7 @@ function LeadDetailModal({
   onOutreachStatusChange: (leadId: string, to: string) => Promise<{ success: boolean; error?: string }>;
   onMarkTerminal: (leadId: string, terminal: string) => Promise<{ success: boolean; error?: string }>;
   onSaveSellerFields: (leadId: string, fields: Record<string, unknown>) => Promise<{ success: boolean; error?: string; sellerSummary?: string }>;
+  onSaveDisposition: (leadId: string, fields: Record<string, unknown>) => Promise<{ success: boolean; error?: string }>;
   onRequestApproval: (leadId: string, kind: "offer" | "contract", details?: string) => Promise<{ success: boolean; error?: string; duplicate?: boolean }>;
   automationBusy: boolean;
   pipelineHistory: PipelineHistoryEntry[];
@@ -1130,6 +1168,49 @@ function LeadDetailModal({
       setSellerSaving(false);
     }
   };
+  // Premium disposition (PH1-B13): local form state seeded from the lead. Only
+  // changed fields are sent; vocabulary is validated server-side. Every save
+  // writes an audit row (channel='disposition').
+  const [dispositionForm, setDispositionForm] = useState(() => ({
+    dispositionStatus: lead.disposition_status ?? "",
+    dispositionStrategy: lead.disposition_strategy ?? "",
+    targetBuyerType: lead.target_buyer_type ?? "",
+    dispositionNotes: lead.disposition_notes ?? "",
+  }));
+  const [dispositionSaving, setDispositionSaving] = useState(false);
+  const [dispositionResult, setDispositionResult] = useState<{ success: boolean; error?: string } | null>(null);
+  const setDispositionField = (key: keyof typeof dispositionForm, value: string) =>
+    setDispositionForm((f) => ({ ...f, [key]: value }));
+  const handleSaveDisposition = async () => {
+    setDispositionSaving(true);
+    setDispositionResult(null);
+    try {
+      const fields: Record<string, unknown> = {};
+      const patch = (key: keyof typeof dispositionForm, dbKey: string) => {
+        const cur = dispositionForm[key];
+        const prev =
+          key === "dispositionStatus" ? (lead.disposition_status ?? "")
+          : key === "dispositionStrategy" ? (lead.disposition_strategy ?? "")
+          : key === "targetBuyerType" ? (lead.target_buyer_type ?? "")
+          : (lead.disposition_notes ?? "");
+        if (cur !== prev) fields[dbKey] = cur.trim() === "" ? null : cur.trim();
+      };
+      patch("dispositionStatus", "dispositionStatus");
+      patch("dispositionStrategy", "dispositionStrategy");
+      patch("targetBuyerType", "targetBuyerType");
+      patch("dispositionNotes", "dispositionNotes");
+      if (Object.keys(fields).length === 0) {
+        setDispositionResult({ success: false, error: "No disposition fields changed." });
+        return;
+      }
+      const result = await onSaveDisposition(lead.id, fields);
+      setDispositionResult(result);
+    } catch {
+      setDispositionResult({ success: false, error: "Failed to save disposition" });
+    } finally {
+      setDispositionSaving(false);
+    }
+  };
 
   // Valid next stages for the lead's current stage (only these are offered).
   const nextOptions = useMemo(() => {
@@ -1203,6 +1284,9 @@ function LeadDetailModal({
               {lead.property_address}, {lead.property_city}, {lead.property_state}{" "}
               {lead.property_zip}
             </p>
+            <span className="mt-1 inline-flex items-center gap-2">
+              <PremiumBadge lead={lead} />
+            </span>
           </div>
           <button
             onClick={onClose}
@@ -1545,6 +1629,113 @@ function LeadDetailModal({
             </div>
           </div>
 
+          {/* Premium disposition (PH1-B13) — only for premium leads (no flipper fit) */}
+          {lead.premium_lead && (
+            <div className="rounded-lg border border-gold-500/20 bg-navy-900/50 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-white">Premium Disposition</h3>
+                {lead.disposition_updated_at && (
+                  <span className="text-[11px] text-gray-500">
+                    Updated {new Date(lead.disposition_updated_at).toLocaleString()}
+                  </span>
+                )}
+              </div>
+              <p className="mt-1 text-[11px] text-gray-500">
+                This is a premium lead (MAO ≈ EV — near-market ceiling): the flipper buyers in the buyer
+                database are NEVER matched to it. Disposition comes from the 2026-08-12 research; edits
+                here are audit-logged (channel=&apos;disposition&apos;).
+              </p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                    Disposition status
+                  </label>
+                  <select
+                    value={dispositionForm.dispositionStatus}
+                    onChange={(e) => setDispositionField("dispositionStatus", e.target.value)}
+                    className="w-full rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-white focus:border-gold-500 focus:outline-none focus:ring-1 focus:ring-gold-500"
+                  >
+                    <option value="">Not dispositioned</option>
+                    <option value="identified">Identified</option>
+                    <option value="outreach_ready">Outreach ready</option>
+                    <option value="in_jv_discussion">In JV discussion</option>
+                    <option value="under_offer">Under offer</option>
+                    <option value="hold">Hold</option>
+                    <option value="deprioritized">Deprioritized</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                    Target buyer type
+                  </label>
+                  <select
+                    value={dispositionForm.targetBuyerType}
+                    onChange={(e) => setDispositionField("targetBuyerType", e.target.value)}
+                    className="w-full rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-white focus:border-gold-500 focus:outline-none focus:ring-1 focus:ring-gold-500"
+                  >
+                    <option value="">Undetermined</option>
+                    <option value="investor">Flipper investor</option>
+                    <option value="developer">Developer</option>
+                    <option value="licensed_agent_jv">Licensed agent JV</option>
+                    <option value="land_assembler">Land assembler</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+              </div>
+              <div className="mt-3">
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                  Disposition strategy
+                </label>
+                <input
+                  type="text"
+                  value={dispositionForm.dispositionStrategy}
+                  onChange={(e) => setDispositionField("dispositionStrategy", e.target.value)}
+                  className="w-full rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-white focus:border-gold-500 focus:outline-none focus:ring-1 focus:ring-gold-500"
+                  placeholder="e.g. licensed-agent JV (TREC no-referral-fee) — suburban luxury retail listing"
+                />
+              </div>
+              <div className="mt-3">
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                  Disposition notes
+                </label>
+                <textarea
+                  value={dispositionForm.dispositionNotes}
+                  onChange={(e) => setDispositionField("dispositionNotes", e.target.value)}
+                  rows={3}
+                  className="w-full rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-white focus:border-gold-500 focus:outline-none focus:ring-1 focus:ring-gold-500"
+                  placeholder="Real facts only (lien per export, overlay flags, comp-verification reminders…)"
+                />
+              </div>
+              {/* Honest external-disposition state — never link a flipper buyer */}
+              {dispositionForm.targetBuyerType && dispositionForm.targetBuyerType !== "investor" ? (
+                <p className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-300">
+                  ⚠️ This disposition requires a licensed-agent JV / external disposition — NOT VERIFIED
+                  (no buyer in system). No buyer in the 22-buyer database fits this lead; recruit
+                  per-property when a seller responds.
+                </p>
+              ) : dispositionForm.targetBuyerType === "investor" ? (
+                <p className="mt-3 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-[11px] text-red-300">
+                  ⚠️ Flipper-investor target selected for a premium lead — the 22 flipper buyers are NEVER
+                  matched to premium leads (MAO ≈ EV, near-market ceiling). This is not a standard flipper
+                  deal; confirm the disposition before saving.
+                </p>
+              ) : null}
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <button
+                  onClick={handleSaveDisposition}
+                  disabled={dispositionSaving}
+                  className="rounded-lg bg-gold-500 px-4 py-2 text-xs font-semibold text-navy-900 hover:bg-gold-400 disabled:opacity-50"
+                >
+                  {dispositionSaving ? "Saving..." : "Save Disposition"}
+                </button>
+                {dispositionResult && (
+                  <span className={`text-xs ${dispositionResult.success ? "text-emerald-400" : "text-red-400"}`}>
+                    {dispositionResult.success ? "Disposition saved — audit row written." : dispositionResult.error}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
           {/* Seller Pipeline (PH1-B8) — seller-facing deal record */}
           <div className="rounded-lg border border-gold-500/20 bg-navy-900/50 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2118,7 +2309,8 @@ function ListView({
                   </select>
                 </td>
                 <td className="px-4 py-3">
-                  <PriorityBadge lead={lead} />
+                  <PremiumBadge lead={lead} />
+        <PriorityBadge lead={lead} />
                 </td>
                 <td className="px-4 py-3 text-xs text-gray-400">
                   {getSourceLabel(lead.lead_source)}
@@ -2249,6 +2441,19 @@ function CrmPage() {
       return { success: false as const, error: result.error };
     } catch {
       return { success: false as const, error: "Failed to save seller fields" };
+    }
+  };
+  // --- Premium disposition (PH1-B13) ---
+  const runSaveDisposition = async (leadId: string, fields: Record<string, unknown>) => {
+    try {
+      const result = await saveDispositionFields({ data: { leadId, fields } });
+      if (result.success) {
+        await refreshLeadState();
+        return { success: true as const };
+      }
+      return { success: false as const, error: result.error };
+    } catch {
+      return { success: false as const, error: "Failed to save disposition" };
     }
   };
   // --- Skip-trace monitor state (PH1-B1) ---
@@ -2436,14 +2641,16 @@ function CrmPage() {
   const [stageFilter, setStageFilter] = useState<string | "all">("all");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
+  const [premiumOnly, setPremiumOnly] = useState(false);
   const sources = useMemo(() => Array.from(new Set(leads.map((l) => l.lead_source).filter(Boolean))).sort(), [leads]);
   const visibleLeads = useMemo(() => leads.filter((l) =>
     (stageFilter === "all" || l.pipeline_stage === stageFilter) &&
     (sourceFilter === "all" || l.lead_source === sourceFilter) &&
     (priorityFilter === "all" ||
       l.priority_queue === priorityFilter ||
-      (priorityFilter === "unscored" && !l.priority_queue))
-  ), [leads, stageFilter, sourceFilter, priorityFilter]);
+      (priorityFilter === "unscored" && !l.priority_queue)) &&
+    (!premiumOnly || l.premium_lead)
+  ), [leads, stageFilter, sourceFilter, priorityFilter, premiumOnly]);
   const pipelineCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     visibleLeads.forEach((l) => {
@@ -2581,6 +2788,15 @@ function CrmPage() {
             <select value={stageFilter} onChange={(e) => setStageFilter(e.target.value)} className="rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-gray-300"><option value="all">All stages</option>{stages.map((s) => <option key={s.id} value={s.name}>{stageLabel(s.name)}</option>)}</select>
             <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} className="rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-gray-300"><option value="all">All sources</option>{sources.map((s) => <option key={s} value={s}>{getSourceLabel(s)}</option>)}</select>
             <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)} className="rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-gray-300"><option value="all">All priorities</option><option value="HOT">HOT</option><option value="HIGH">HIGH</option><option value="MEDIUM">MEDIUM</option><option value="LOW">LOW</option><option value="DEAD">DEAD</option><option value="unscored">Unscored</option></select>
+            <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-gold-500/30 bg-navy-900 px-3 py-2 text-sm text-gray-300">
+              <input
+                type="checkbox"
+                checked={premiumOnly}
+                onChange={(e) => setPremiumOnly(e.target.checked)}
+                className="rounded border-navy-600 bg-navy-800"
+              />
+              <span className="text-xs font-medium text-gold-300">★ Premium only</span>
+            </label>
           </div>
         </div>
       </div>
@@ -2634,6 +2850,7 @@ function CrmPage() {
           onOutreachStatusChange={runOutreachStatusChange}
           onMarkTerminal={runMarkTerminal}
           onSaveSellerFields={runSaveSellerFields}
+          onSaveDisposition={runSaveDisposition}
           onRequestApproval={runRequestApproval}
           automationBusy={automationBusy}
           pipelineHistory={pipelineHistory}
