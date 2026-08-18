@@ -33,6 +33,9 @@ import { Route as SellProbateRouteImport } from './routes/sell/probate'
 import { Route as SellTaxDelinquentRouteImport } from './routes/sell/tax-delinquent'
 import { Route as SellTiredLandlordRouteImport } from './routes/sell/tired-landlord'
 import { Route as SellVacantRouteImport } from './routes/sell/vacant'
+import { Route as ApiAuthLoginRouteImport } from './routes/api/auth/login'
+import { Route as ApiAuthLogoutRouteImport } from './routes/api/auth/logout'
+import { Route as ApiAuthStatusRouteImport } from './routes/api/auth/status'
 import { Route as ApiOutreachDispatchRouteImport } from './routes/api/outreach/dispatch'
 import { Route as ApiSkipTraceMonitorRouteImport } from './routes/api/skip-trace/monitor'
 
@@ -156,6 +159,21 @@ const SellVacantRoute = SellVacantRouteImport.update({
   path: '/sell/vacant',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAuthLoginRoute = ApiAuthLoginRouteImport.update({
+  id: '/api/auth/login',
+  path: '/api/auth/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthLogoutRoute = ApiAuthLogoutRouteImport.update({
+  id: '/api/auth/logout',
+  path: '/api/auth/logout',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthStatusRoute = ApiAuthStatusRouteImport.update({
+  id: '/api/auth/status',
+  path: '/api/auth/status',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiOutreachDispatchRoute = ApiOutreachDispatchRouteImport.update({
   id: '/api/outreach/dispatch',
   path: '/api/outreach/dispatch',
@@ -192,6 +210,9 @@ export interface FileRoutesByFullPath {
   '/sell/tax-delinquent': typeof SellTaxDelinquentRoute
   '/sell/tired-landlord': typeof SellTiredLandlordRoute
   '/sell/vacant': typeof SellVacantRoute
+  '/api/auth/login': typeof ApiAuthLoginRoute
+  '/api/auth/logout': typeof ApiAuthLogoutRoute
+  '/api/auth/status': typeof ApiAuthStatusRoute
   '/api/outreach/dispatch': typeof ApiOutreachDispatchRoute
   '/api/skip-trace/monitor': typeof ApiSkipTraceMonitorRoute
 }
@@ -220,6 +241,9 @@ export interface FileRoutesByTo {
   '/sell/tax-delinquent': typeof SellTaxDelinquentRoute
   '/sell/tired-landlord': typeof SellTiredLandlordRoute
   '/sell/vacant': typeof SellVacantRoute
+  '/api/auth/login': typeof ApiAuthLoginRoute
+  '/api/auth/logout': typeof ApiAuthLogoutRoute
+  '/api/auth/status': typeof ApiAuthStatusRoute
   '/api/outreach/dispatch': typeof ApiOutreachDispatchRoute
   '/api/skip-trace/monitor': typeof ApiSkipTraceMonitorRoute
 }
@@ -249,6 +273,9 @@ export interface FileRoutesById {
   '/sell/tax-delinquent': typeof SellTaxDelinquentRoute
   '/sell/tired-landlord': typeof SellTiredLandlordRoute
   '/sell/vacant': typeof SellVacantRoute
+  '/api/auth/login': typeof ApiAuthLoginRoute
+  '/api/auth/logout': typeof ApiAuthLogoutRoute
+  '/api/auth/status': typeof ApiAuthStatusRoute
   '/api/outreach/dispatch': typeof ApiOutreachDispatchRoute
   '/api/skip-trace/monitor': typeof ApiSkipTraceMonitorRoute
 }
@@ -279,6 +306,9 @@ export interface FileRouteTypes {
     | '/sell/tax-delinquent'
     | '/sell/tired-landlord'
     | '/sell/vacant'
+    | '/api/auth/login'
+    | '/api/auth/logout'
+    | '/api/auth/status'
     | '/api/outreach/dispatch'
     | '/api/skip-trace/monitor'
   fileRoutesByTo: FileRoutesByTo
@@ -307,6 +337,9 @@ export interface FileRouteTypes {
     | '/sell/tax-delinquent'
     | '/sell/tired-landlord'
     | '/sell/vacant'
+    | '/api/auth/login'
+    | '/api/auth/logout'
+    | '/api/auth/status'
     | '/api/outreach/dispatch'
     | '/api/skip-trace/monitor'
   id:
@@ -335,6 +368,9 @@ export interface FileRouteTypes {
     | '/sell/tax-delinquent'
     | '/sell/tired-landlord'
     | '/sell/vacant'
+    | '/api/auth/login'
+    | '/api/auth/logout'
+    | '/api/auth/status'
     | '/api/outreach/dispatch'
     | '/api/skip-trace/monitor'
   fileRoutesById: FileRoutesById
@@ -364,6 +400,9 @@ export interface RootRouteChildren {
   SellTaxDelinquentRoute: typeof SellTaxDelinquentRoute
   SellTiredLandlordRoute: typeof SellTiredLandlordRoute
   SellVacantRoute: typeof SellVacantRoute
+  ApiAuthLoginRoute: typeof ApiAuthLoginRoute
+  ApiAuthLogoutRoute: typeof ApiAuthLogoutRoute
+  ApiAuthStatusRoute: typeof ApiAuthStatusRoute
   ApiOutreachDispatchRoute: typeof ApiOutreachDispatchRoute
   ApiSkipTraceMonitorRoute: typeof ApiSkipTraceMonitorRoute
 }
@@ -538,6 +577,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SellVacantRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/auth/login': {
+      id: '/api/auth/login'
+      path: '/api/auth/login'
+      fullPath: '/api/auth/login'
+      preLoaderRoute: typeof ApiAuthLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/logout': {
+      id: '/api/auth/logout'
+      path: '/api/auth/logout'
+      fullPath: '/api/auth/logout'
+      preLoaderRoute: typeof ApiAuthLogoutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/status': {
+      id: '/api/auth/status'
+      path: '/api/auth/status'
+      fullPath: '/api/auth/status'
+      preLoaderRoute: typeof ApiAuthStatusRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/outreach/dispatch': {
       id: '/api/outreach/dispatch'
       path: '/api/outreach/dispatch'
@@ -580,6 +640,9 @@ const rootRouteChildren: RootRouteChildren = {
   SellTaxDelinquentRoute: SellTaxDelinquentRoute,
   SellTiredLandlordRoute: SellTiredLandlordRoute,
   SellVacantRoute: SellVacantRoute,
+  ApiAuthLoginRoute: ApiAuthLoginRoute,
+  ApiAuthLogoutRoute: ApiAuthLogoutRoute,
+  ApiAuthStatusRoute: ApiAuthStatusRoute,
   ApiOutreachDispatchRoute: ApiOutreachDispatchRoute,
   ApiSkipTraceMonitorRoute: ApiSkipTraceMonitorRoute,
 }
