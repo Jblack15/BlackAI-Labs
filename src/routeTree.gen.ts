@@ -18,6 +18,7 @@ import { Route as ContractsRouteImport } from './routes/contracts'
 import { Route as CrmRouteImport } from './routes/crm'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as GetOfferRouteImport } from './routes/get-offer'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as SellFastRouteImport } from './routes/sell-fast'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ThankYouRouteImport } from './routes/thank-you'
@@ -82,6 +83,11 @@ const DashboardRoute = DashboardRouteImport.update({
 const GetOfferRoute = GetOfferRouteImport.update({
   id: '/get-offer',
   path: '/get-offer',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SellFastRoute = SellFastRouteImport.update({
@@ -195,6 +201,7 @@ export interface FileRoutesByFullPath {
   '/crm': typeof CrmRoute
   '/dashboard': typeof DashboardRoute
   '/get-offer': typeof GetOfferRoute
+  '/login': typeof LoginRoute
   '/sell-fast': typeof SellFastRoute
   '/settings': typeof SettingsRoute
   '/thank-you': typeof ThankYouRoute
@@ -226,6 +233,7 @@ export interface FileRoutesByTo {
   '/crm': typeof CrmRoute
   '/dashboard': typeof DashboardRoute
   '/get-offer': typeof GetOfferRoute
+  '/login': typeof LoginRoute
   '/sell-fast': typeof SellFastRoute
   '/settings': typeof SettingsRoute
   '/thank-you': typeof ThankYouRoute
@@ -258,6 +266,7 @@ export interface FileRoutesById {
   '/crm': typeof CrmRoute
   '/dashboard': typeof DashboardRoute
   '/get-offer': typeof GetOfferRoute
+  '/login': typeof LoginRoute
   '/sell-fast': typeof SellFastRoute
   '/settings': typeof SettingsRoute
   '/thank-you': typeof ThankYouRoute
@@ -291,6 +300,7 @@ export interface FileRouteTypes {
     | '/crm'
     | '/dashboard'
     | '/get-offer'
+    | '/login'
     | '/sell-fast'
     | '/settings'
     | '/thank-you'
@@ -322,6 +332,7 @@ export interface FileRouteTypes {
     | '/crm'
     | '/dashboard'
     | '/get-offer'
+    | '/login'
     | '/sell-fast'
     | '/settings'
     | '/thank-you'
@@ -353,6 +364,7 @@ export interface FileRouteTypes {
     | '/crm'
     | '/dashboard'
     | '/get-offer'
+    | '/login'
     | '/sell-fast'
     | '/settings'
     | '/thank-you'
@@ -385,6 +397,7 @@ export interface RootRouteChildren {
   CrmRoute: typeof CrmRoute
   DashboardRoute: typeof DashboardRoute
   GetOfferRoute: typeof GetOfferRoute
+  LoginRoute: typeof LoginRoute
   SellFastRoute: typeof SellFastRoute
   SettingsRoute: typeof SettingsRoute
   ThankYouRoute: typeof ThankYouRoute
@@ -470,6 +483,13 @@ declare module '@tanstack/react-router' {
       path: '/get-offer'
       fullPath: '/get-offer'
       preLoaderRoute: typeof GetOfferRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sell-fast': {
@@ -625,6 +645,7 @@ const rootRouteChildren: RootRouteChildren = {
   CrmRoute: CrmRoute,
   DashboardRoute: DashboardRoute,
   GetOfferRoute: GetOfferRoute,
+  LoginRoute: LoginRoute,
   SellFastRoute: SellFastRoute,
   SettingsRoute: SettingsRoute,
   ThankYouRoute: ThankYouRoute,

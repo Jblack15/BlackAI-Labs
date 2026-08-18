@@ -1,5 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
+import { requireOwnerMiddleware } from "~/lib/auth";
+import { OwnerGate } from "~/components/OwnerGate";
 import { useState, useMemo, useEffect } from "react";
 import type { PostcardCampaign } from "~/lib/postcard-templates";
 import type { ApprovalRow } from "~/lib/approvals";
@@ -206,7 +208,7 @@ interface OutreachHistoryRow {
 }
 
 // --- Server Functions ---
-const fetchLeads = createServerFn({ method: "GET" }).handler(async () => {
+const fetchLeads = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] }).handler(async () => {
   try {
     const { sql } = await import("~/db");
     const rows = (await sql`
@@ -255,7 +257,7 @@ const fetchLeads = createServerFn({ method: "GET" }).handler(async () => {
   }
 });
 
-const updateLeadStatus = createServerFn({ method: "POST" })
+const updateLeadStatus = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
   .validator((data: unknown) => {
     const d = data as { id: string; status: string };
     if (!d.id || !d.status) throw new Error("id and status are required");
@@ -304,7 +306,7 @@ const updateLeadStatus = createServerFn({ method: "POST" })
     }
   });
 
-const fetchLeadSmsLogs = createServerFn({ method: "GET" })
+const fetchLeadSmsLogs = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] })
   .validator((data: unknown) => {
     const d = data as { leadId: string };
     if (!d.leadId) throw new Error("leadId is required");
@@ -326,9 +328,9 @@ const fetchLeadSmsLogs = createServerFn({ method: "GET" })
     }
   });
 
-const skipTrace = createServerFn({ method: "POST" }).validator((data: unknown) => data as { ids?: string[] }).handler(async ({ data }) => { try { const { skipTraceLeads } = await import("~/lib/skip-trace"); return await skipTraceLeads(data.ids); } catch (e) { return { success: false, updated: 0, error: e instanceof Error ? e.message : "Skip trace failed" }; } });
+const skipTrace = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] }).validator((data: unknown) => data as { ids?: string[] }).handler(async ({ data }) => { try { const { skipTraceLeads } = await import("~/lib/skip-trace"); return await skipTraceLeads(data.ids); } catch (e) { return { success: false, updated: 0, error: e instanceof Error ? e.message : "Skip trace failed" }; } });
 // --- Skip-trace monitor (PH1-B1) ---
-const fetchSkipTraceJobs = createServerFn({ method: "GET" }).handler(async () => {
+const fetchSkipTraceJobs = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] }).handler(async () => {
   try {
     const { listSkipTraceJobs, getTraceSummary } = await import("~/lib/skip-trace");
     const [jobs, summary] = await Promise.all([listSkipTraceJobs(), getTraceSummary()]);
@@ -337,7 +339,7 @@ const fetchSkipTraceJobs = createServerFn({ method: "GET" }).handler(async () =>
     return { jobs: [], summary: null };
   }
 });
-const runMonitorNow = createServerFn({ method: "POST" }).handler(async () => {
+const runMonitorNow = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] }).handler(async () => {
   try {
     const { detectStalledJobs } = await import("~/lib/skip-trace");
     return await detectStalledJobs();
@@ -345,7 +347,7 @@ const runMonitorNow = createServerFn({ method: "POST" }).handler(async () => {
     return { stalled: [], notificationsCreated: 0, error: e instanceof Error ? e.message : "Monitor check failed" };
   }
 });
-const recordManualTrace = createServerFn({ method: "POST" })
+const recordManualTrace = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
   .validator((data: unknown) => {
     const d = data as { leadId: string; phone?: string; email?: string; dncFlag?: string };
     if (!d?.leadId) throw new Error("leadId is required");
@@ -364,13 +366,13 @@ const recordManualTrace = createServerFn({ method: "POST" })
       return { success: false, updated: 0, error: e instanceof Error ? e.message : "Manual trace failed" };
     }
   });
-const startOutreach = createServerFn({ method: "POST" }).validator((data: unknown) => data as { leadId: string }).handler(async ({ data }) => { try { const { startSmsOutreach } = await import("~/lib/outreach"); return await startSmsOutreach(data.leadId); } catch (e) { return { success: false, error: e instanceof Error ? e.message : "Outreach failed" }; } });
+const startOutreach = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] }).validator((data: unknown) => data as { leadId: string }).handler(async ({ data }) => { try { const { startSmsOutreach } = await import("~/lib/outreach"); return await startSmsOutreach(data.leadId); } catch (e) { return { success: false, error: e instanceof Error ? e.message : "Outreach failed" }; } });
 // --- Outreach status actions (PH1-B6) ---
 // The contact-pipeline spine: valid transitions go through the state machine
 // (which writes an outreach_audit_log row per change); terminal states also
 // sync the matching suppression flag so the B1/B2 compliance hard block stays
 // engaged (opted_out additionally records consent via recordSuppression).
-const setOutreachStatus = createServerFn({ method: "POST" })
+const setOutreachStatus = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
   .validator((data: unknown) => {
     const d = data as { leadId: string; to: string };
     if (!d?.leadId || !d?.to) throw new Error("leadId and to are required");
@@ -400,7 +402,7 @@ const setOutreachStatus = createServerFn({ method: "POST" })
       return { success: false, error: e instanceof Error ? e.message : "Status transition failed" };
     }
   });
-const markTerminalStatus = createServerFn({ method: "POST" })
+const markTerminalStatus = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
   .validator((data: unknown) => {
     const d = data as { leadId: string; terminal: string };
     if (!d?.leadId || !d?.terminal) throw new Error("leadId and terminal are required");
@@ -437,7 +439,7 @@ const markTerminalStatus = createServerFn({ method: "POST" })
       return { success: false as const, error: e instanceof Error ? e.message : "Failed to mark terminal status" };
     }
   });
-const fetchOutreachHistory = createServerFn({ method: "GET" })
+const fetchOutreachHistory = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] })
   .validator((data: unknown) => {
     const d = data as { leadId: string };
     if (!d?.leadId) throw new Error("leadId is required");
@@ -452,7 +454,7 @@ const fetchOutreachHistory = createServerFn({ method: "GET" })
     }
   });
 // HUMAN APPROVAL GATES (PH1-B11) — lead-level approval status + request.
-const requestLeadApproval = createServerFn({ method: "POST" })
+const requestLeadApproval = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
   .validator((data: unknown) => {
     const d = data as { leadId: string; kind: "offer" | "contract"; details?: string };
     if (!d?.leadId || !d?.kind) throw new Error("leadId and kind are required");
@@ -472,7 +474,7 @@ const requestLeadApproval = createServerFn({ method: "POST" })
       return { success: false, error: e instanceof Error ? e.message : "Request approval failed" };
     }
   });
-const fetchLeadApprovalStatus = createServerFn({ method: "GET" })
+const fetchLeadApprovalStatus = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] })
   .validator((data: unknown) => {
     const d = data as { leadId: string };
     if (!d?.leadId) throw new Error("leadId is required");
@@ -486,7 +488,7 @@ const fetchLeadApprovalStatus = createServerFn({ method: "GET" })
       return [];
     }
   });
-const fetchLeadApprovalHistory = createServerFn({ method: "GET" })
+const fetchLeadApprovalHistory = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] })
   .validator((data: unknown) => {
     const d = data as { leadId: string };
     if (!d?.leadId) throw new Error("leadId is required");
@@ -503,7 +505,7 @@ const fetchLeadApprovalHistory = createServerFn({ method: "GET" })
 // Seller Pipeline CRM (PH1-B8): save operator/seller-recorded seller fields.
 // Writes ONE outreach_audit_log row (channel='seller_crm', direction='internal',
 // status='updated') per save and regenerates the data-derived seller summary.
-const saveSellerFields = createServerFn({ method: "POST" })
+const saveSellerFields = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
   .validator((data: unknown) => data as { leadId: string; fields: Record<string, unknown> })
   .handler(async ({ data }) => {
     try {
@@ -516,7 +518,7 @@ const saveSellerFields = createServerFn({ method: "POST" })
 // Premium disposition (PH1-B13): save disposition fields for a premium lead.
 // Writes ONE outreach_audit_log row (channel='disposition', direction='internal',
 // status='updated') per save. Vocabulary is validated server-side.
-const saveDispositionFields = createServerFn({ method: "POST" })
+const saveDispositionFields = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
   .validator((data: unknown) => data as { leadId: string; fields: Record<string, unknown> })
   .handler(async ({ data }) => {
     try {
@@ -526,11 +528,11 @@ const saveDispositionFields = createServerFn({ method: "POST" })
       return { success: false, error: e instanceof Error ? e.message : "Failed to save disposition" };
     }
   });
-const bulkOutreach = createServerFn({ method: "POST" }).handler(async () => { try { const { startBulkOutreach } = await import("~/lib/outreach"); return await startBulkOutreach(); } catch (e) { return { success: false, started: 0, error: e instanceof Error ? e.message : "Outreach failed" }; } });
-const startEmailOutreach = createServerFn({ method: "POST" }).validator((data: unknown) => data as { leadId: string }).handler(async ({ data }) => { try { const { startEmailOutreach: runDrip } = await import("~/lib/email-outreach"); return await runDrip(data.leadId); } catch (e) { return { success: false, error: e instanceof Error ? e.message : "Email outreach failed" }; } });
-const bulkEmailOutreach = createServerFn({ method: "POST" }).handler(async () => { try { const { startBulkEmailOutreach } = await import("~/lib/email-outreach"); return await startBulkEmailOutreach(); } catch (e) { return { success: false, started: 0, error: e instanceof Error ? e.message : "Email outreach failed" }; } });
+const bulkOutreach = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] }).handler(async () => { try { const { startBulkOutreach } = await import("~/lib/outreach"); return await startBulkOutreach(); } catch (e) { return { success: false, started: 0, error: e instanceof Error ? e.message : "Outreach failed" }; } });
+const startEmailOutreach = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] }).validator((data: unknown) => data as { leadId: string }).handler(async ({ data }) => { try { const { startEmailOutreach: runDrip } = await import("~/lib/email-outreach"); return await runDrip(data.leadId); } catch (e) { return { success: false, error: e instanceof Error ? e.message : "Email outreach failed" }; } });
+const bulkEmailOutreach = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] }).handler(async () => { try { const { startBulkEmailOutreach } = await import("~/lib/email-outreach"); return await startBulkEmailOutreach(); } catch (e) { return { success: false, started: 0, error: e instanceof Error ? e.message : "Email outreach failed" }; } });
 
-const sendManualSms = createServerFn({ method: "POST" })
+const sendManualSms = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
   .validator((data: unknown) => {
     const d = data as { leadId: string; message: string };
     if (!d.leadId || !d.message) throw new Error("leadId and message are required");
@@ -562,7 +564,7 @@ const sendManualSms = createServerFn({ method: "POST" })
 
 // --- Pipeline server functions ---
 // Fetches the canonical pipeline stages from the DB (ordered by display_order).
-const fetchPipelineStages = createServerFn({ method: "GET" }).handler(async () => {
+const fetchPipelineStages = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] }).handler(async () => {
   try {
     const { sql } = await import("~/db");
     const rows = await sql`
@@ -580,7 +582,7 @@ const fetchPipelineStages = createServerFn({ method: "GET" }).handler(async () =
 
 // Validates and performs a pipeline stage transition (updates leads.pipeline_stage,
 // writes a pipeline_events audit row, then evaluates automation rules).
-const transitionLeadStage = createServerFn({ method: "POST" })
+const transitionLeadStage = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
   .validator((data: unknown) => {
     const d = data as { leadId: string; toStage: string; triggeredBy?: string; notes?: string };
     if (!d?.leadId || !d?.toStage) throw new Error("leadId and toStage are required");
@@ -597,7 +599,7 @@ const transitionLeadStage = createServerFn({ method: "POST" })
   });
 
 // Fetches the stage-change audit trail for a lead (newest first).
-const fetchPipelineHistory = createServerFn({ method: "GET" })
+const fetchPipelineHistory = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] })
   .validator((data: unknown) => {
     const d = data as { leadId: string };
     if (!d?.leadId) throw new Error("leadId is required");
@@ -618,7 +620,7 @@ const resolveMailCampaign = (campaign?: string): PostcardCampaign | undefined =>
     ? (campaign as PostcardCampaign)
     : undefined;
 
-const sendMailToLead = createServerFn({ method: "POST" })
+const sendMailToLead = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
   .validator((data: unknown) => {
     const d = data as { leadId: string; campaign?: string };
     if (!d.leadId) throw new Error("leadId is required");
@@ -633,7 +635,7 @@ const sendMailToLead = createServerFn({ method: "POST" })
     }
   });
 
-const bulkSendMail = createServerFn({ method: "POST" })
+const bulkSendMail = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
   .validator((data: unknown) => {
     const d = data as { ids?: string[]; campaign?: string };
     return { ids: Array.isArray(d?.ids) ? d.ids : [], campaign: d?.campaign };
@@ -2864,7 +2866,11 @@ function CrmPage() {
 }
 
 export const Route = createFileRoute("/crm")({
-  component: CrmPage,
+  component: () => (
+    <OwnerGate>
+      <CrmPage />
+    </OwnerGate>
+  ),
   head: () => ({
     meta: [
       { title: "CRM Pipeline — DealForge Properties" },

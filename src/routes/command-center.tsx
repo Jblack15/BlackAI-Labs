@@ -1,5 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
+import { requireOwnerMiddleware } from "~/lib/auth";
+import { OwnerGate } from "~/components/OwnerGate";
 import { useEffect, useState } from "react";
 import type { FunnelMetrics, CampaignCosts, AttentionItem, CommandStatus } from "~/lib/command-center";
 import type { CampaignEconomicsSummary, HealthStatus } from "~/lib/campaign-economics";
@@ -31,7 +33,7 @@ type CommandCenterData = {
 
 // DB-backed lib is imported dynamically inside the handler so the client bundle
 // never includes the server-only db module (team convention — see dashboard.tsx).
-const fetchCommandCenter = createServerFn({ method: "GET" }).handler(async (): Promise<CommandCenterData> => {
+const fetchCommandCenter = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] }).handler(async (): Promise<CommandCenterData> => {
   const { funnelMetrics, campaignCosts, attentionItems, computeCommandStatus } = await import("~/lib/command-center");
   const { campaignEconomics, toFunnelCounts } = await import("~/lib/campaign-economics");
   const [funnel, costs, items] = await Promise.all([funnelMetrics(), campaignCosts(), attentionItems()]);
@@ -49,7 +51,11 @@ const fetchCommandCenter = createServerFn({ method: "GET" }).handler(async (): P
 });
 
 export const Route = createFileRoute("/command-center")({
-  component: CommandCenterPage,
+  component: () => (
+    <OwnerGate>
+      <CommandCenterPage />
+    </OwnerGate>
+  ),
 });
 
 // ── Pure formatting helpers (duplicated locally — the lib is server-only) ──

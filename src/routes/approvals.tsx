@@ -1,5 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
+import { requireOwnerMiddleware } from "~/lib/auth";
+import { OwnerGate } from "~/components/OwnerGate";
 import { useState, useEffect } from "react";
 import type { ApprovalRow } from "~/lib/approvals";
 // HUMAN APPROVAL GATES (PH1-B11) — owner approve/reject dashboard.
@@ -17,7 +19,7 @@ import type { ApprovalRow } from "~/lib/approvals";
 // nothing is pending until a real offer / contract / spend / change is
 // actually requested. The empty state says exactly that.
 // --- Server Functions ---
-const fetchPending = createServerFn({ method: "GET" }).handler(async () => {
+const fetchPending = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] }).handler(async () => {
   try {
     const { pendingApprovals } = await import("~/lib/approvals");
     return await pendingApprovals();
@@ -25,7 +27,7 @@ const fetchPending = createServerFn({ method: "GET" }).handler(async () => {
     return [] as ApprovalRow[];
   }
 });
-const fetchHistory = createServerFn({ method: "GET" }).handler(async () => {
+const fetchHistory = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] }).handler(async () => {
   try {
     const { approvalHistory } = await import("~/lib/approvals");
     return await approvalHistory(50);
@@ -33,7 +35,7 @@ const fetchHistory = createServerFn({ method: "GET" }).handler(async () => {
     return [] as ApprovalRow[];
   }
 });
-const decide = createServerFn({ method: "POST" })
+const decide = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
   .validator((data: unknown) => data as { id: string; approved: boolean; note?: string })
   .handler(async ({ data }) => {
     try {
@@ -47,7 +49,7 @@ const decide = createServerFn({ method: "POST" })
       return { success: false, error: e instanceof Error ? e.message : "Decision failed" };
     }
   });
-const fetchPendingCount = createServerFn({ method: "GET" }).handler(async () => {
+const fetchPendingCount = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] }).handler(async () => {
   try {
     const { pendingApprovalCount } = await import("~/lib/approvals");
     return await pendingApprovalCount();
@@ -245,7 +247,11 @@ function ApprovalsPage() {
   );
 }
 export const Route = createFileRoute("/approvals")({
-  component: ApprovalsPage,
+  component: () => (
+    <OwnerGate>
+      <ApprovalsPage />
+    </OwnerGate>
+  ),
   head: () => ({
     meta: [
       { title: "Approvals — DealForge Properties" },

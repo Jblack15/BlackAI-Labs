@@ -1,5 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
+import { requireOwnerMiddleware } from "~/lib/auth";
+import { OwnerGate } from "~/components/OwnerGate";
 import { useState, useEffect } from "react";
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -86,7 +88,7 @@ const CONTRACT_STAGES = [
 // ── Server Functions ──────────────────────────────────────────────────────
 // Every number below is a live database query. On failure we return dbOk:false
 // with zeros — never sample/fabricated figures (the UI surfaces the warning).
-const fetchDashboardData = createServerFn({ method: "GET" }).handler(async (): Promise<DashboardData> => {
+const fetchDashboardData = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] }).handler(async (): Promise<DashboardData> => {
   try {
     const { sql } = await import("~/db");
     const { getPipelineStats } = await import("~/lib/pipeline");
@@ -131,7 +133,7 @@ const fetchDashboardData = createServerFn({ method: "GET" }).handler(async (): P
   }
 });
 
-const fetchAutomationMetrics = createServerFn({ method: "GET" }).handler(async (): Promise<AutomationMetrics> => {
+const fetchAutomationMetrics = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] }).handler(async (): Promise<AutomationMetrics> => {
   const zeroes: AutomationMetrics = { leadsEnriched: 0, smsSentToday: 0, emailsSentToday: 0, pendingOutreach: 0, responsesReceived: 0 };
   try {
     const { sql } = await import("~/db");
@@ -149,7 +151,7 @@ const fetchAutomationMetrics = createServerFn({ method: "GET" }).handler(async (
   }
 });
 
-const fetchNotifications = createServerFn({ method: "GET" }).handler(async (): Promise<NotificationItem[]> => {
+const fetchNotifications = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] }).handler(async (): Promise<NotificationItem[]> => {
   try {
     const { sql } = await import("~/db");
     const rows = await sql`
@@ -179,7 +181,7 @@ interface AnalyzedDealRow {
   analysis_status: string | null;
   created_at: string;
 }
-const fetchAnalyzedDeals = createServerFn({ method: "GET" }).handler(async (): Promise<AnalyzedDealRow[]> => {
+const fetchAnalyzedDeals = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] }).handler(async (): Promise<AnalyzedDealRow[]> => {
   try {
     const { sql } = await import("~/db");
     const rows = (await sql`
@@ -322,7 +324,7 @@ interface Next25Payload {
   next25: Next25Row[];
   queues: { queue: string; count: number }[];
 }
-const fetchNext25 = createServerFn({ method: "GET" }).handler(async (): Promise<Next25Payload> => {
+const fetchNext25 = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] }).handler(async (): Promise<Next25Payload> => {
   try {
     const { next25ToWork, queueDistribution } = await import("~/lib/prioritization");
     const [next25, queues] = await Promise.all([next25ToWork(), queueDistribution()]);
@@ -500,7 +502,7 @@ interface PremiumQueuePayload {
     disposition_notes: string | null;
   }>;
 }
-const fetchPremiumQueue = createServerFn({ method: "GET" }).handler(async (): Promise<PremiumQueuePayload> => {
+const fetchPremiumQueue = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] }).handler(async (): Promise<PremiumQueuePayload> => {
   try {
     const { getPremiumQueue } = await import("~/lib/premium-queue");
     const rows = await getPremiumQueue();
@@ -1139,7 +1141,11 @@ function DashboardPage() {
 }
 
 export const Route = createFileRoute("/dashboard")({
-  component: DashboardPage,
+  component: () => (
+    <OwnerGate>
+      <DashboardPage />
+    </OwnerGate>
+  ),
   head: () => ({
     meta: [
       { title: "Dashboard — DealForge Properties" },

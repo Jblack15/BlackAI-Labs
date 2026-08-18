@@ -53,6 +53,17 @@ export const SESSION_COOKIE = "df_session";
 export const SESSION_TTL_MS = 86_400_000; // 24h absolute, no sliding
 export const SESSION_MAX_AGE_SECONDS = 86_400;
 
+// --- Small crypto helpers shared by the auth protocol routes -----------------
+// Kept in auth.ts (SERVER-ONLY) rather than in the /api/auth/* route files so
+// their client copies never import node:crypto directly — the client build env
+// serves auth.client-stub.ts instead, and the stubs keep the bundle honest.
+export function randomToken(): string {
+  return randomBytes(32).toString("base64url");
+}
+export function sha256Hex(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
 // --- PIN hashing (spec §3) ---------------------------------------------------
 
 const SCRYPT_N = 16384;
@@ -157,10 +168,6 @@ export function sessionCookie(value: string, maxAgeSeconds = SESSION_MAX_AGE_SEC
 // --- Sessions (spec §2) -------------------------------------------------------
 
 export type AuthSession = { id: string; role: string };
-
-function sha256Hex(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
-}
 
 /**
  * Resolve the session (if any) for an incoming request. Reads the df_session

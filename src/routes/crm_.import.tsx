@@ -6,6 +6,8 @@
 // property address are rejected, rows missing phone/email import with a warning.
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
+import { requireOwnerMiddleware } from "~/lib/auth";
+import { OwnerGate } from "~/components/OwnerGate";
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { DragEvent } from "react";
 import {
@@ -26,7 +28,7 @@ const PREVIEW_ROWS = 10;
 
 // --- Server function: import one chunk of rows (progress is driven client-side
 // by looping over chunks; each chunk returns authoritative counts). ---
-const importLeadsBatch = createServerFn({ method: "POST" })
+const importLeadsBatch = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
   .validator((data: unknown) => data as { rows: ImportRow[] })
   .handler(async ({ data }) => {
     try {
@@ -54,7 +56,11 @@ const emptyOutcome = (): ImportOutcome => ({
 });
 
 export const Route = createFileRoute("/crm_/import")({
-  component: ImportPage,
+  component: () => (
+    <OwnerGate>
+      <ImportPage />
+    </OwnerGate>
+  ),
   head: () => ({
     meta: [
       { title: "Import Leads — DealForge Properties CRM" },
