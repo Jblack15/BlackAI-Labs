@@ -45,6 +45,7 @@ import { createHash, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { sql } from "~/db";
 import { logOutreachAudit, type OutreachAuditStatus } from "~/lib/compliance";
+import type { OutreachChannel } from "~/lib/skip-trace";
 
 // --- Session constants (spec §2) --------------------------------------------
 

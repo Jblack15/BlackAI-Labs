@@ -319,9 +319,18 @@ try {
   // untracked directory like src/routes/api/auth/ into one line).
   const porcelain = String(execSync("git status --porcelain -uall", { cwd: process.cwd() })).trim();
   const dirtyLines = porcelain.split("\n").filter(Boolean);
-  const unexpected = dirtyLines.filter((l) => !newFiles.some((f) => l.includes(f)));
-  ok("working tree contains ONLY the expected files (7 new + route manifest; public/UI pages untouched)", dirtyLines.length === newFiles.length && unexpected.length === 0, porcelain.replace(/\n/g, " | ") || "clean");
-  console.log(`  (git porcelain: ${porcelain.replace(/\n/g, " | ") || "clean"})`);
+  // The check must work in BOTH states: uncommitted (files added, section runs
+  // pre-commit) and committed (clean tree on the feature branch). Collect the
+  // full changed-file set = uncommitted paths + files changed vs origin/main.
+  const changed = new Set<string>();
+  for (const l of dirtyLines) {
+    const p = l.slice(3).trim();
+    if (p) changed.add(p);
+  }
+  const branchDiff = String(execSync("git diff --name-only origin/main...HEAD --", { cwd: process.cwd() })).trim();
+  for (const f of branchDiff.split("\n").filter(Boolean)) changed.add(f);
+  const unexpected = [...changed].filter((f) => !newFiles.includes(f));
+  ok("changed-file set = expected files only (7 new + route manifest; public/UI pages untouched)", unexpected.length === 0 && changed.size > 0, [...changed].join(", ") || "none");
 
   console.log("== 13. DB pristine (checked after cleanup) ==");
 } finally {
