@@ -74,7 +74,7 @@ async function api(path: string, init?: RequestInit): Promise<{ res: Response; b
   return { res, body, setCookie: res.headers.get("set-cookie") };
 }
 
-function postJson(path: string, payload: unknown, ip: string, cookie?: string): Promise<ReturnType<typeof api>> {
+function postJson(path: string, payload: unknown, ip: string, cookie?: string) {
   return api(path, {
     method: "POST",
     headers: { "content-type": "application/json", "x-forwarded-for": ip, ...(cookie ? { cookie } : {}) },

@@ -305,8 +305,11 @@ export async function logAuthAudit(opts: {
   contactValue?: string | null;
 }): Promise<void> {
   await logOutreachAudit({
-    channel: "auth",
-    direction: "internal",
+    // channel/direction are cast: the compliance type only knows outbound
+    // channels, but outreach_audit_log is free-text (no CHECK) and 'auth' /
+    // 'internal' is the decided vocabulary for this trail (spec §5).
+    channel: "auth" as unknown as OutreachChannel,
+    direction: "internal" as unknown as "outbound" | "inbound",
     status: opts.status as unknown as OutreachAuditStatus,
     reason: opts.reason,
     operator: opts.operator ?? null,
