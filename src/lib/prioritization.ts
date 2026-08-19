@@ -178,6 +178,8 @@ export interface Next25Lead {
   property_city: string;
   property_state: string;
   property_zip: string;
+  phone: string | null;
+  email: string | null;
   score: number | null;
   priority_queue: PriorityQueue;
   contactable: boolean;
@@ -255,7 +257,7 @@ export async function next25ToWork(): Promise<Next25Lead[]> {
   const { sql } = await import("~/db");
   const rows = (await sql`
     SELECT id, full_name, property_address, property_city, property_state,
-           property_zip, score, priority_queue, contactable, outreach_status,
+           property_zip, phone, email, score, priority_queue, contactable, outreach_status,
            apn, asking_price, desired_close, next_action, score_factors
     FROM leads
     WHERE priority_queue IS NOT NULL AND priority_queue <> 'DEAD'
@@ -275,6 +277,8 @@ export async function next25ToWork(): Promise<Next25Lead[]> {
     property_city: string;
     property_state: string;
     property_zip: string;
+    phone: string | null;
+    email: string | null;
     score: string | number | null;
     priority_queue: string | null;
     contactable: boolean;
@@ -292,6 +296,8 @@ export async function next25ToWork(): Promise<Next25Lead[]> {
     property_city: r.property_city,
     property_state: r.property_state,
     property_zip: r.property_zip,
+    phone: r.phone || null,
+    email: r.email || null,
     score: toNum(r.score),
     priority_queue: (r.priority_queue ?? "LOW") as PriorityQueue,
     contactable: r.contactable,

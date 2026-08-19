@@ -304,6 +304,13 @@ function AnalyzedDealsPanel({ deals }: { deals: AnalyzedDealRow[] }) {
 }
 
 // ── Next 25 to Work (PH1-B7) — real scores from the DB ────────────────────
+/** 2105550142 → (210) 555-0142 for the manual call list. */
+function formatPhone(p: string | null): string {
+  if (!p) return "—";
+  const d = p.replace(/\D/g, "");
+  if (d.length !== 10) return p;
+  return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+}
 interface Next25Row {
   id: string;
   full_name: string;
@@ -311,6 +318,8 @@ interface Next25Row {
   property_city: string;
   property_state: string;
   property_zip: string;
+  phone: string | null;
+  email: string | null;
   score: number | null;
   priority_queue: string | null;
   contactable: boolean;
@@ -337,6 +346,8 @@ const fetchNext25 = createServerFn({ method: "GET", middleware: [requireOwnerMid
         property_city: l.property_city,
         property_state: l.property_state,
         property_zip: l.property_zip,
+        phone: l.phone,
+        email: l.email,
         score: l.score,
         priority_queue: l.priority_queue,
         contactable: l.contactable,
@@ -440,9 +451,13 @@ function Next25Panel({ payload }: { payload: Next25Payload }) {
                   </td>
                   <td className="py-2 pr-3 text-gray-400">{l.property_zip}</td>
                   <td className="py-2 pr-3">
-                    {l.contactable ? (
-                      <span className="inline-block rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
-                        Contactable
+                    {l.contactable && l.phone ? (
+                      <span className="flex flex-col items-start gap-0.5">
+                        <span className="inline-block rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
+                          Contactable
+                        </span>
+                        <span className="text-xs text-gray-300 tabular-nums">{formatPhone(l.phone)}</span>
+                        {l.email ? <span className="text-[11px] text-gray-500">{l.email}</span> : null}
                       </span>
                     ) : (
                       <span className="text-[11px] text-gray-600">No contact yet</span>
