@@ -299,8 +299,8 @@ export async function runTraceImport(
   // the queue reflects the new contactable set, then refreshSellerSummaries()
   // so the summary text matches the freshly-imported truth. Both are
   // idempotent batch updates; safe on a re-run.
-  const summaryRefresh = await refreshSellerSummaries();
   const priorityRefresh = await refreshPriorities();
+  const summaryRefresh = await refreshSellerSummaries();
   // ---- honest one-row audit summary -------------------------------------
   const tracedCount = matchedPlans.length;
   const phoneCount = (
