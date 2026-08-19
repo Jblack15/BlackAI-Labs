@@ -369,6 +369,28 @@ export async function importLeadRows(
     );
     outcome.imported += batch.length;
   }
+  // Audit trail for bulk CSV imports (audit §10 gap 1): the 7,150-lead history
+  // had no import trail. One row per run, channel 'import' (free-text per the
+  // schema — house style casts free-text channels). Dynamic import keeps this
+  // lib out of the client bundle; logOutreachAudit swallows its own errors.
+  try {
+    const { logOutreachAudit } = await import("~/lib/compliance");
+    await logOutreachAudit({
+      channel: "import" as unknown as Parameters<
+        typeof logOutreachAudit
+      >[0]["channel"],
+      direction: "internal" as unknown as Parameters<
+        typeof logOutreachAudit
+      >[0]["direction"],
+      status: "completed" as unknown as Parameters<
+        typeof logOutreachAudit
+      >[0]["status"],
+      reason: `Bulk lead CSV import: ${outcome.imported} imported, ${outcome.skipped} skipped (duplicate), ${outcome.invalid} invalid, ${outcome.warnings} missing-contact warning(s), ${outcome.errors.length} row error(s). Source=${defaultLeadSource}.`,
+      operator: "importLeadRows",
+    } as unknown as Parameters<typeof logOutreachAudit>[0]);
+  } catch {
+    // audit must never break the import
+  }
 
   return outcome;
 }
