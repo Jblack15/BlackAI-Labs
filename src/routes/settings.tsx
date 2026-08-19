@@ -31,6 +31,7 @@ type ComplianceSummary = {
   audit_log_rows: number;
   identity: {
     business_name: string;
+    contact_name: string | null;
     phone: string | null;
     website: string | null;
     return_address: string | null;
@@ -39,6 +40,7 @@ type ComplianceSummary = {
   };
   identityComplete: {
     business_name: boolean;
+    contact_name: boolean;
     website: boolean;
     return_address: boolean;
     phone: boolean;
@@ -78,12 +80,13 @@ const fetchAuditLog = createServerFn({ method: "GET", middleware: [requireOwnerM
 });
 
 const saveIdentity = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
-  .validator((data: unknown) => data as { business_name?: string; phone?: string; website?: string; return_address?: string; email?: string })
+  .validator((data: unknown) => data as { business_name?: string; contact_name?: string; phone?: string; website?: string; return_address?: string; email?: string })
   .handler(async ({ data }) => {
     try {
       const { saveBusinessProfile } = await import("~/lib/compliance");
       return await saveBusinessProfile({
         business_name: data.business_name?.trim() || undefined,
+        contact_name: data.contact_name?.trim() || undefined,
         phone: data.phone?.trim() || undefined,
         website: data.website?.trim() || undefined,
         return_address: data.return_address?.trim() || undefined,
@@ -103,8 +106,8 @@ const EMPTY_SUMMARY: ComplianceSummary = {
   },
   suppression: { dnc: 0, do_not_mail: 0, opted_out: 0, invalid_contact: 0, wrong_number: 0, consent_recorded: 0 },
   audit_log_rows: 0,
-  identity: { business_name: "DealForge Properties", phone: null, website: null, return_address: null, email: null, updated_at: "" },
-  identityComplete: { business_name: true, website: false, return_address: false, phone: false, email: false },
+  identity: { business_name: "DealForge Properties", contact_name: null, phone: null, website: null, return_address: null, email: null, updated_at: "" },
+  identityComplete: { business_name: true, contact_name: false, website: false, return_address: false, phone: false, email: false },
 };
 
 const STATUS_STYLES: Record<string, string> = {
@@ -127,7 +130,7 @@ function SettingsPage() {
   const [audit, setAudit] = useState<AuditRow[]>([]);
   const [loading, setLoading] = useState(true);
   // Identity form state
-  const [form, setForm] = useState({ business_name: "", phone: "", website: "", return_address: "", email: "" });
+  const [form, setForm] = useState({ business_name: "", contact_name: "", phone: "", website: "", return_address: "", email: "" });
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState<{ success: boolean; error?: string } | null>(null);
 
@@ -137,6 +140,7 @@ function SettingsPage() {
       setSummary(s);
       setForm({
         business_name: s.identity.business_name || "",
+        contact_name: s.identity.contact_name || "",
         phone: s.identity.phone || "",
         website: s.identity.website || "",
         return_address: s.identity.return_address || "",
@@ -152,7 +156,32 @@ function SettingsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /** Client-side mirror of the server validation (compliance.ts keeps the
+   *  authoritative copy — this just catches obvious mistakes before the
+   *  round-trip). */
+  const validateForm = (): string | null => {
+    if (!form.business_name.trim()) return "Business name is required.";
+    if (!form.phone.trim()) return "Phone is required (non-empty string).";
+    const email = form.email.trim();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return `Email format is invalid: ${email}`;
+    const website = form.website.trim();
+    if (website) {
+      try {
+        const u = new URL(website.includes("://") ? website : `https://${website}`);
+        if (!u.hostname || !u.hostname.includes(".")) return `Website URL is invalid: ${website}`;
+      } catch {
+        return `Website URL is invalid: ${website}`;
+      }
+    }
+    return null;
+  };
+
   const handleSave = async () => {
+    const invalid = validateForm();
+    if (invalid) {
+      setSaveResult({ success: false, error: invalid });
+      return;
+    }
     setSaving(true);
     setSaveResult(null);
     try {
@@ -220,6 +249,15 @@ function SettingsPage() {
               value={form.business_name}
               onChange={(e) => setForm((f) => ({ ...f, business_name: e.target.value }))}
               placeholder="DealForge Properties"
+              className="w-full rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-gold-500 focus:outline-none"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[11px] text-gray-400">Contact name</span>
+            <input
+              value={form.contact_name}
+              onChange={(e) => setForm((f) => ({ ...f, contact_name: e.target.value }))}
+              placeholder="Joshua Black"
               className="w-full rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-gold-500 focus:outline-none"
             />
           </label>

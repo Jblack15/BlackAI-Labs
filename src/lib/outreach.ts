@@ -3,25 +3,31 @@ import { sendSms } from "~/lib/sms";
 import { assertOutreachAllowed } from "~/lib/skip-trace";
 import { logOutreachAudit } from "~/lib/compliance";
 
-// SMS drip templates. The business name is rendered from the business_profile
-// at send time (the third template arg) — nothing hardcodes an identity that
-// the owner did not set.
+// SMS drip templates. The business name + contact name are rendered from the
+// business_profile at send time (the third/fourth template args) — nothing
+// hardcodes an identity that the owner did not set.
 export const SMS_SEQUENCE = [
-  (name: string, address: string, businessName: string) =>
-    `Hi ${name}, this is ${businessName}. We’re reaching out about ${address}. Would you be open to a quick conversation about a cash offer? Reply STOP to opt out.`,
-  (name: string, address: string, businessName: string) =>
+  (name: string, address: string, businessName: string, contactName?: string | null) =>
+    `Hi ${name}, this is ${formatFrom(businessName, contactName)}. We’re reaching out about ${address}. Would you be open to a quick conversation about a cash offer? Reply STOP to opt out.`,
+  (name: string, address: string, businessName: string, _contactName?: string | null) =>
     `Hi ${name}, just following up about ${address}. If selling is on your mind, ${businessName} can provide a no-obligation cash offer. Reply STOP to opt out.`,
-  (name: string, address: string, businessName: string) =>
+  (name: string, address: string, businessName: string, _contactName?: string | null) =>
     `Hi ${name}, this is our last follow-up about ${address}. If now isn’t the right time, no problem — you won't hear from ${businessName} again about this property. Reply STOP to opt out.`,
 ];
 
-async function getBusinessName(): Promise<string> {
+/** Render the sender as "<contact name> from <business name>" when the profile
+ *  carries a contact name, else just the business name. */
+function formatFrom(businessName: string, contactName?: string | null): string {
+  return contactName?.trim() ? `${contactName.trim()} from ${businessName}` : businessName;
+}
+
+async function getBusinessIdentity(): Promise<{ businessName: string; contactName: string | null }> {
   try {
     const { getBusinessProfile } = await import("~/lib/compliance");
     const profile = await getBusinessProfile();
-    return profile.business_name || "DealForge Properties";
+    return { businessName: profile.business_name || "DealForge Properties", contactName: profile.contact_name || null };
   } catch {
-    return "DealForge Properties";
+    return { businessName: "DealForge Properties", contactName: null };
   }
 }
 
@@ -48,10 +54,10 @@ export async function startSmsOutreach(leadId: string) {
   }
   if (!lead.phone) return { success: false, error: "Lead has no phone number" };
   const address = `${lead.property_address}, ${lead.property_city}, ${lead.property_state}`;
-  const businessName = await getBusinessName();
+  const { businessName, contactName } = await getBusinessIdentity();
   // Outreach status spine (PH1-B6): sendSms bumps the lead to contact_attempted
   // on a real transmission — no status handling needed here.
-  const result = await sendSms(lead.phone, SMS_SEQUENCE[0](lead.full_name, address, businessName), leadId);
+  const result = await sendSms(lead.phone, SMS_SEQUENCE[0](lead.full_name, address, businessName, contactName), leadId);
   if (!result.success) return result;
   for (const [step, days] of [[2, 2], [3, 7]] as const)
     await sql`

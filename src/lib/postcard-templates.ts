@@ -64,6 +64,7 @@ function frontFooter(pills: string[]): string {
           .join("")}
       </div>
       <div style="text-align:right;">
+        <div style="font-family:Arial,sans-serif;font-size:13px;font-weight:600;color:rgba(255,255,255,0.9);">[CONTACT_NAME]</div>
         <div style="font-family:Arial,sans-serif;font-size:24px;font-weight:700;color:${GOLD};">${PHONE}</div>
         <div style="font-family:Arial,sans-serif;font-size:13px;color:rgba(255,255,255,0.55);">${WEBSITE}</div>
       </div>
@@ -246,19 +247,23 @@ export interface PostcardMergeData {
 /** Business identity rendered into every postcard (PH1-B2). When fields are
  *  missing the placeholders stay visible — the identity guard in click2mail.ts
  *  blocks the send before any piece is printed, so a placeholder can never
- *  reach the mail. */
+ *  reach the mail. [CONTACT_NAME] renders the owner's name (business_profile
+ *  contact_name) on the front footer so every card signs with a real person. */
 export interface PostcardIdentity {
   businessName: string;
+  contactName: string | null;
   phone: string | null;
   website: string | null;
 }
 
 /** Substitute {{merge}} fields in a template fragment with escaped values, and
- *  render the business identity (phone/website/brand name) from the profile. */
+ *  render the business identity (contact_name/phone/website/brand name) from
+ *  the profile. */
 export function renderPostcardTemplate(html: string, data: PostcardMergeData, identity?: PostcardIdentity): string {
   const esc = (v: string) =>
     v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   const bizName = identity?.businessName?.trim() || "DealForge Properties";
+  const contactName = identity?.contactName?.trim() || "";
   return html
     .replace(/\{\{name\}\}/g, esc(data.name))
     .replace(/\{\{address\}\}/g, esc(data.address))
@@ -267,6 +272,7 @@ export function renderPostcardTemplate(html: string, data: PostcardMergeData, id
     .replace(/\{\{zip\}\}/g, esc(data.zip))
     .replace(/\[PHONE\]/g, identity?.phone ? esc(identity.phone) : "[PHONE]")
     .replace(/\[WEBSITE\]/g, identity?.website ? esc(identity.website) : "[WEBSITE]")
+    .replace(/\[CONTACT_NAME\]/g, contactName ? esc(contactName) : "")
     // Brand name in the header/footer ("Deal<span …>Forge</span> Properties") →
     // the profile business name, so no piece prints a name the owner did not set.
     .replace(/Deal<span[^>]*>Forge<\/span> Properties/g, esc(bizName));

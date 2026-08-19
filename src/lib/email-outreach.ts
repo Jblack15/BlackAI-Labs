@@ -23,6 +23,7 @@ const UNSUBSCRIBE_EMAIL_FALLBACK = "dealforge-properties-8480c335@ctomail.io";
 
 export type EmailIdentity = {
   businessName: string;
+  contactName: string | null;
   website: string;
   phone: string | null;
   email: string | null;
@@ -45,11 +46,13 @@ function ctaButton(label: string, url: string): string {
 
 function emailShell(bodyHtml: string, preview: string, identity?: EmailIdentity): string {
   const businessName = identity?.businessName || "DealForge Properties";
+  const contactName = identity?.contactName || null;
   const website = identity?.website || SITE_URL;
   const phone = identity?.phone || null;
   const profileEmail = identity?.email || null;
   const siteLink = website ? ` · <a href="${website}" style="color:#f59e0b;">${website}</a>` : "";
   const phoneLine = phone ? ` · ${phone}` : "";
+  const signature = `${contactName ? `${contactName} · ` : ""}${businessName} · San Antonio, TX${phoneLine}${siteLink}`;
   const unsubscribeEmail = profileEmail || UNSUBSCRIBE_EMAIL_FALLBACK;
   const unsubscribeHtml = `<p style="margin:16px 0 0;font-size:12px;color:#7c93b5;">To unsubscribe, reply STOP or <a href="mailto:${unsubscribeEmail}?subject=Unsubscribe" style="color:#f59e0b;">click here</a>.</p>`;
   return `<!DOCTYPE html>
@@ -65,7 +68,7 @@ function emailShell(bodyHtml: string, preview: string, identity?: EmailIdentity)
         </td></tr>
         <tr><td style="padding:16px 32px;font-family:Arial,sans-serif;font-size:15px;line-height:1.65;color:#dbe7f5;">
           ${bodyHtml}
-          <p style="margin:28px 0 0;padding-top:16px;border-top:1px solid #1e3a5f;font-size:12px;color:#7c93b5;">${businessName} · San Antonio, TX${phoneLine}${siteLink}</p>
+          <p style="margin:28px 0 0;padding-top:16px;border-top:1px solid #1e3a5f;font-size:12px;color:#7c93b5;">${signature}</p>
           ${unsubscribeHtml}
         </td></tr>
       </table>
@@ -270,6 +273,7 @@ export async function sendEmail(opts: {
   const profile = await getBusinessProfile();
   const identity: EmailIdentity = {
     businessName: profile.business_name || "DealForge Properties",
+    contactName: profile.contact_name || null,
     website: profile.website || SITE_URL,
     phone: profile.phone,
     email: profile.email,
@@ -338,11 +342,15 @@ export async function sendEmail(opts: {
       auth: { user, pass },
     });
     const from = profile.email || process.env.EMAIL_FROM || `${identity.businessName} <${UNSUBSCRIBE_EMAIL_FALLBACK}>`;
+    // Reply-To always points at the business identity email (business_profile.email)
+    // so seller replies land in the owner's inbox, not a no-reply sender address.
+    const replyTo = profile.email || process.env.EMAIL_FROM || UNSUBSCRIBE_EMAIL_FALLBACK;
     const unsubscribeEmail = profile.email || UNSUBSCRIBE_EMAIL_FALLBACK;
     const unsubscribeText = `To unsubscribe, reply STOP or click here: mailto:${unsubscribeEmail}?subject=Unsubscribe`;
     const info = await transport.sendMail({
       from,
       to: opts.to,
+      replyTo,
       subject: opts.subject,
       html: opts.html,
       text: `${opts.text || ""}\n\n${unsubscribeText}`,
