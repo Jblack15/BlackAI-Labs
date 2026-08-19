@@ -14,6 +14,7 @@ import { Route as ApprovalsRouteImport } from './routes/approvals'
 import { Route as BriefingRouteImport } from './routes/briefing'
 import { Route as BuyersRouteImport } from './routes/buyers'
 import { Route as CalculatorRouteImport } from './routes/calculator'
+import { Route as ChannelsRouteImport } from './routes/channels'
 import { Route as CommandCenterRouteImport } from './routes/command-center'
 import { Route as ContractsRouteImport } from './routes/contracts'
 import { Route as CrmRouteImport } from './routes/crm'
@@ -66,6 +67,11 @@ const BuyersRoute = BuyersRouteImport.update({
 const CalculatorRoute = CalculatorRouteImport.update({
   id: '/calculator',
   path: '/calculator',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ChannelsRoute = ChannelsRouteImport.update({
+  id: '/channels',
+  path: '/channels',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CommandCenterRoute = CommandCenterRouteImport.update({
@@ -215,6 +221,7 @@ export interface FileRoutesByFullPath {
   '/briefing': typeof BriefingRoute
   '/buyers': typeof BuyersRoute
   '/calculator': typeof CalculatorRoute
+  '/channels': typeof ChannelsRoute
   '/command-center': typeof CommandCenterRoute
   '/contracts': typeof ContractsRoute
   '/crm': typeof CrmRoute
@@ -250,6 +257,7 @@ export interface FileRoutesByTo {
   '/briefing': typeof BriefingRoute
   '/buyers': typeof BuyersRoute
   '/calculator': typeof CalculatorRoute
+  '/channels': typeof ChannelsRoute
   '/command-center': typeof CommandCenterRoute
   '/contracts': typeof ContractsRoute
   '/crm': typeof CrmRoute
@@ -286,6 +294,7 @@ export interface FileRoutesById {
   '/briefing': typeof BriefingRoute
   '/buyers': typeof BuyersRoute
   '/calculator': typeof CalculatorRoute
+  '/channels': typeof ChannelsRoute
   '/command-center': typeof CommandCenterRoute
   '/contracts': typeof ContractsRoute
   '/crm': typeof CrmRoute
@@ -323,6 +332,7 @@ export interface FileRouteTypes {
     | '/briefing'
     | '/buyers'
     | '/calculator'
+    | '/channels'
     | '/command-center'
     | '/contracts'
     | '/crm'
@@ -358,6 +368,7 @@ export interface FileRouteTypes {
     | '/briefing'
     | '/buyers'
     | '/calculator'
+    | '/channels'
     | '/command-center'
     | '/contracts'
     | '/crm'
@@ -393,6 +404,7 @@ export interface FileRouteTypes {
     | '/briefing'
     | '/buyers'
     | '/calculator'
+    | '/channels'
     | '/command-center'
     | '/contracts'
     | '/crm'
@@ -429,6 +441,7 @@ export interface RootRouteChildren {
   BriefingRoute: typeof BriefingRoute
   BuyersRoute: typeof BuyersRoute
   CalculatorRoute: typeof CalculatorRoute
+  ChannelsRoute: typeof ChannelsRoute
   CommandCenterRoute: typeof CommandCenterRoute
   ContractsRoute: typeof ContractsRoute
   CrmRoute: typeof CrmRoute
@@ -494,6 +507,13 @@ declare module '@tanstack/react-router' {
       path: '/calculator'
       fullPath: '/calculator'
       preLoaderRoute: typeof CalculatorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/channels': {
+      id: '/channels'
+      path: '/channels'
+      fullPath: '/channels'
+      preLoaderRoute: typeof ChannelsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/command-center': {
@@ -701,6 +721,7 @@ const rootRouteChildren: RootRouteChildren = {
   BriefingRoute: BriefingRoute,
   BuyersRoute: BuyersRoute,
   CalculatorRoute: CalculatorRoute,
+  ChannelsRoute: ChannelsRoute,
   CommandCenterRoute: CommandCenterRoute,
   ContractsRoute: ContractsRoute,
   CrmRoute: CrmRoute,
