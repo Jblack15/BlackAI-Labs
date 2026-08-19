@@ -189,7 +189,8 @@ export async function saveSellerCrmFields(
              outreach_status, dnc_flag, do_not_mail, opted_out, invalid_contact,
              wrong_number, score_factors, asking_price, desired_close, occupancy,
              motivation, mortgage_balance, mortgage_lender, lien_info,
-             last_contact_at, next_action, next_action_due, seller_notes
+             last_contact_at, next_action, next_action_due, seller_notes,
+             decision_makers, deal_potential
       FROM leads WHERE id = ${leadId}
     `) as Array<Record<string, unknown>>;
     const lead = rows[0];
