@@ -53,6 +53,12 @@ export function Header() {
           {authed ? (
             <>
               <Link
+                to="/operations"
+                className="text-sm font-medium text-gray-300 transition-colors hover:text-white"
+              >
+                Operations
+              </Link>
+              <Link
                 to="/command-center"
                 className="text-sm font-medium text-gray-300 transition-colors hover:text-white"
               >
