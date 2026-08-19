@@ -13,6 +13,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { useState, useEffect, useCallback } from "react";
 import { requireOwnerMiddleware } from "~/lib/auth";
 import { OwnerGate } from "~/components/OwnerGate";
+import { LogCallOutcomeModal, type LogCallLead, type LogCallSubmit } from "~/components/LogCallOutcomeModal";
 import type { OperationsOverview } from "~/lib/owner-action-queue";
 import type { Top25CallList } from "~/lib/top25-call-list";
 
@@ -46,6 +47,21 @@ const regenerateTop25 = createServerFn({ method: "POST", middleware: [requireOwn
     return null;
   }
 });
+
+// D2 Seller Conversation Engine: record what happened on a manual owner call.
+// Owner-gated like every other write here. Never sends anything — it advances
+// the lead through the outreach-status state machine, persists seller fields,
+// schedules a follow-up, and (on opt-out/suppression) hard-suppresses + audits.
+const logCallOutcomeFn = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
+  .validator((data: unknown) => data as { leadId: string; input: Record<string, unknown> })
+  .handler(async ({ data }) => {
+    try {
+      const { logCallOutcome } = await import("~/lib/log-call-outcome");
+      return await logCallOutcome(data.leadId, data.input as never, { operator: "owner" });
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : "Failed to log call outcome" };
+    }
+  });
 
 // --- shared UI helpers ------------------------------------------------------
 const sevStyles: Record<string, string> = {
@@ -82,7 +98,7 @@ function Stat({ label, value, accent }: { label: string; value: string | number;
 }
 
 // --- Today tab --------------------------------------------------------------
-function TodayTab({ overview }: { overview: OperationsOverview }) {
+function TodayTab({ overview, onLogCall }: { overview: OperationsOverview; onLogCall: (lead: LogCallLead) => void }) {
   const hot = overview.queue.find((q) => q.queue === "HOT")?.count ?? 0;
   return (
     <div className="space-y-6">
@@ -152,6 +168,14 @@ function TodayTab({ overview }: { overview: OperationsOverview }) {
                     {c.score_factors?.equity != null && <> · est. equity {money(c.score_factors.equity)}</>}
                     {c.next_action && <> · next: {c.next_action}</>}
                   </div>
+                  <div className="mt-2">
+                    <button
+                      onClick={() => onLogCall({ id: c.id, full_name: c.full_name, phone: c.phone, property_address: c.property_address, property_city: c.property_city })}
+                      className="rounded-lg border border-gold-500/50 px-3 py-1.5 text-xs font-semibold text-gold-400 transition-colors hover:bg-gold-500 hover:text-navy-900"
+                    >
+                      📞 Log call outcome
+                    </button>
+                  </div>
                 </li>
               ))}
           </ul>
@@ -165,7 +189,15 @@ function TodayTab({ overview }: { overview: OperationsOverview }) {
           <ul className="mt-3 divide-y divide-navy-700">
             {overview.dueFollowUps.map((c) => (
               <li key={c.id} className="py-3 text-sm">
-                <div className="font-medium text-white">{c.full_name}</div>
+                <div className="flex items-center justify-between">
+                  <div className="font-medium text-white">{c.full_name}</div>
+                  <button
+                    onClick={() => onLogCall({ id: c.id, full_name: c.full_name, phone: c.phone, property_address: c.property_address, property_city: c.property_city })}
+                    className="rounded-lg border border-gold-500/50 px-3 py-1.5 text-xs font-semibold text-gold-400 transition-colors hover:bg-gold-500 hover:text-navy-900"
+                  >
+                    📞 Log call outcome
+                  </button>
+                </div>
                 <div className="text-gray-400">
                   {c.property_address} · {fmtPhone(c.phone)} · {c.next_action ?? "follow up"}
                 </div>
@@ -216,7 +248,7 @@ function TodayTab({ overview }: { overview: OperationsOverview }) {
 }
 
 // --- Call list tab ----------------------------------------------------------
-function CallListTab({ list, onRegenerate, busy }: { list: Top25CallList; onRegenerate: () => void; busy: boolean }) {
+function CallListTab({ list, onRegenerate, busy, onLogCall }: { list: Top25CallList; onRegenerate: () => void; busy: boolean; onLogCall: (lead: LogCallLead) => void }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -280,6 +312,14 @@ function CallListTab({ list, onRegenerate, busy }: { list: Top25CallList; onRege
                 <span className="text-gray-400">Next action:</span> Call {fmtPhone(x.phone)}. Use the talking point (below); confirm situation + tax status; log outcome + any opt-out in the CRM.
               </p>
             )}
+            <div className="mt-3">
+              <button
+                onClick={() => onLogCall({ id: x.id, full_name: x.full_name, phone: x.phone, property_address: x.property_address, property_city: x.property_city })}
+                className="rounded-lg border border-gold-500/50 px-3 py-1.5 text-xs font-semibold text-gold-400 transition-colors hover:bg-gold-500 hover:text-navy-900"
+              >
+                📞 Log call outcome
+              </button>
+            </div>
           </div>
         ))}
       </div>
@@ -294,6 +334,7 @@ function OperationsPage() {
   const [list, setList] = useState<Top25CallList | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [logLead, setLogLead] = useState<LogCallLead | null>(null);
 
   const load = useCallback(async () => {
     const [o, t] = await Promise.all([fetchOverview(), fetchTop25()]);
@@ -314,6 +355,17 @@ function OperationsPage() {
     } finally {
       setBusy(false);
     }
+  };
+
+  // D2: submit a call outcome; on success close the modal + refresh the screen
+  // so the lead's new status / priority / follow-up is reflected immediately.
+  const handleLogCall: LogCallSubmit = async (leadId, input) => {
+    const res = await logCallOutcomeFn({ data: { leadId, input } });
+    if (res?.success) {
+      setLogLead(null);
+      load();
+    }
+    return res;
   };
 
   if (loading) {
@@ -347,14 +399,22 @@ function OperationsPage() {
 
       {tab === "today" ? (
         overview ? (
-          <TodayTab overview={overview} />
+          <TodayTab overview={overview} onLogCall={setLogLead} />
         ) : (
           <p className="text-sm text-gray-500">Could not load the operations overview.</p>
         )
       ) : list ? (
-        <CallListTab list={list} onRegenerate={handleRegenerate} busy={busy} />
+        <CallListTab list={list} onRegenerate={handleRegenerate} busy={busy} onLogCall={setLogLead} />
       ) : (
         <p className="text-sm text-gray-500">Could not load the call list.</p>
+      )}
+
+      {logLead && (
+        <LogCallOutcomeModal
+          lead={logLead}
+          onSubmit={handleLogCall}
+          onClose={() => setLogLead(null)}
+        />
       )}
     </div>
   );

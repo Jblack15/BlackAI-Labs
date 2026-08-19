@@ -30,6 +30,8 @@ export interface SellerCrmFieldInput {
   askingPrice?: number | string | null;
   /** Desired closing date (YYYY-MM-DD). */
   desiredClose?: string | null;
+  /** Property condition (free text) — legacy leads.property_condition column. */
+  propertyCondition?: string | null;
   /** occupancy vocabulary (owner/tenant/vacant/unknown). */
   occupancy?: SellerOccupancy | null;
   /** Why the seller is selling (notes). */
@@ -48,6 +50,11 @@ export interface SellerCrmFieldInput {
   nextActionDue?: string | null;
   /** Free-form operator notes. */
   sellerNotes?: string | null;
+  /** Who must approve the sale (names + relationship), captured from the
+   *  owner's post-call summary. Free text (decisions often have >1 signer). */
+  decisionMakers?: string | null;
+  /** Owner's flag for whether the lead is worth chasing (high/medium/low/none). */
+  dealPotential?: "high" | "medium" | "low" | "none" | null;
 }
 
 export type SaveSellerCrmResult = {
@@ -92,6 +99,7 @@ function toNullableText(v: string | null | undefined): string | null {
 const FIELD_LABELS: Record<string, string> = {
   asking_price: "asking_price",
   desired_close: "desired_close",
+  property_condition: "property_condition",
   occupancy: "occupancy",
   motivation: "motivation",
   mortgage_balance: "mortgage_balance",
@@ -101,6 +109,8 @@ const FIELD_LABELS: Record<string, string> = {
   next_action: "next_action",
   next_action_due: "next_action_due",
   seller_notes: "seller_notes",
+  decision_makers: "decision_makers",
+  deal_potential: "deal_potential",
 };
 
 /**
@@ -126,6 +136,7 @@ export async function saveSellerCrmFields(
     // Parse + validate the payload first (throws on invalid input).
     if ("askingPrice" in fields) put("asking_price", toNullableNum(fields.askingPrice), FIELD_LABELS.asking_price);
     if ("desiredClose" in fields) put("desired_close", toNullableDay(fields.desiredClose ?? null), FIELD_LABELS.desired_close);
+    if ("propertyCondition" in fields) put("property_condition", toNullableText(fields.propertyCondition), FIELD_LABELS.property_condition);
     if ("occupancy" in fields) {
       const occ = fields.occupancy ?? null;
       if (occ !== null && !(OCCUPANCY_VALUES as readonly string[]).includes(occ)) {
@@ -145,6 +156,14 @@ export async function saveSellerCrmFields(
     if ("nextAction" in fields) put("next_action", toNullableText(fields.nextAction), FIELD_LABELS.next_action);
     if ("nextActionDue" in fields) put("next_action_due", toNullableDay(fields.nextActionDue ?? null), FIELD_LABELS.next_action_due);
     if ("sellerNotes" in fields) put("seller_notes", toNullableText(fields.sellerNotes), FIELD_LABELS.seller_notes);
+    if ("decisionMakers" in fields) put("decision_makers", toNullableText(fields.decisionMakers), FIELD_LABELS.decision_makers);
+    if ("dealPotential" in fields) {
+      const dp = fields.dealPotential ?? null;
+      if (dp !== null && !["high", "medium", "low", "none"].includes(dp)) {
+        throw new Error(`Invalid deal_potential: ${dp} (expected high/medium/low/none)`);
+      }
+      put("deal_potential", dp, FIELD_LABELS.deal_potential);
+    }
 
     if (changed.length === 0) {
       return { success: false, error: "No seller-CRM fields to save." };
@@ -170,7 +189,8 @@ export async function saveSellerCrmFields(
              outreach_status, dnc_flag, do_not_mail, opted_out, invalid_contact,
              wrong_number, score_factors, asking_price, desired_close, occupancy,
              motivation, mortgage_balance, mortgage_lender, lien_info,
-             last_contact_at, next_action, next_action_due, seller_notes
+             last_contact_at, next_action, next_action_due, seller_notes,
+             decision_makers, deal_potential
       FROM leads WHERE id = ${leadId}
     `) as Array<Record<string, unknown>>;
     const lead = rows[0];
