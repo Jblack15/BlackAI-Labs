@@ -4,6 +4,8 @@ import { requireOwnerMiddleware } from "~/lib/auth";
 import { OwnerGate } from "~/components/OwnerGate";
 import { useState, useEffect, useMemo } from "react";
 import type { ContractDetail, ContractListItem, ClosingChecklistItem, AttentionItem } from "~/lib/closing";
+import type { TransactionCommandCenterData, TransactionRow, DealPickerLead, ArcAdvanceResult } from "~/lib/transaction-command-center";
+import type { BuyerMatchResult, LeadForMatch } from "~/lib/buyer-marketplace";
 
 // DealForge — /contracts: two tabs.
 //   1. Closing Workflow (PH1-B12): the last mile of the deal lifecycle —
@@ -300,6 +302,34 @@ const recordAssignmentFlow = createServerFn({ method: "POST", middleware: [requi
     }
   });
 
+// --- D3 Transaction Command Center + buyer shortlist (Steps 8 & 9) -----------
+const fetchTransactionCC = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] }).handler(async () => {
+  const { transactionCommandCenter } = await import("~/lib/transaction-command-center");
+  return transactionCommandCenter();
+});
+const fetchDealPicker = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] }).handler(async () => {
+  const { listDealsForShortlist } = await import("~/lib/transaction-command-center");
+  return listDealsForShortlist();
+});
+const fetchDealShortlist = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
+  .validator((d: unknown) => d as { leadId: string })
+  .handler(async ({ data }) => {
+    if (!data.leadId) return { lead: null, matches: [] };
+    const { buyerShortlistForDeal } = await import("~/lib/transaction-command-center");
+    return buyerShortlistForDeal(data.leadId);
+  });
+const runArcAdvance = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
+  .validator((d: unknown) => {
+    const x = d as { contractId: string; to: "contract_signed" | "buyer_matched" | "title" };
+    if (!x.contractId || !["contract_signed", "buyer_matched", "title"].includes(x.to)) {
+      throw new Error("contractId and a valid arc target are required");
+    }
+    return x;
+  })
+  .handler(async ({ data }) => {
+    const { advanceClosingArc } = await import("~/lib/transaction-command-center");
+    return advanceClosingArc(data.contractId, data.to, "owner");
+  });
 // --- Default Form Data ---
 function defaultFormData(): ContractFormData {
   const today = new Date();
@@ -1298,16 +1328,428 @@ function formatDateOnly(dateStr: string) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+function BuyerShortlistPanel() {
+  const [leadId, setLeadId] = useState<string | null>(null);
+  const [shortlist, setShortlist] = useState<{ lead: LeadForMatch | null; matches: BuyerMatchResult[] } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [pickers, setPickers] = useState<DealPickerLead[]>([]);
+  const load = async (id: string) => {
+    setLoading(true);
+    const res = await fetchDealShortlist({ data: { leadId: id } });
+    setShortlist(res);
+    setLoading(false);
+  };
+  useEffect(() => {
+    fetchDealPicker().then((rows) => {
+      setPickers(rows ?? []);
+      if (rows && rows.length > 0 && !leadId) {
+        setLeadId(rows[0].id);
+        load(rows[0].id);
+      }
+    }).catch(() => setPickers([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return (
+    <div className="rounded-2xl border border-navy-700 bg-navy-800 p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-400">Buyer shortlist</h3>
+          <p className="mt-1 text-xs text-gray-500">
+            Auto-matched from your buyer database (San Antonio + SFR criteria) — recommendation only.{" "}
+            <span className="text-gray-400 font-medium">Nothing is ever sent to a buyer; outreach is manual and owner-approved.</span>
+          </p>
+        </div>
+        <select
+          value={leadId ?? ""}
+          onChange={(e) => { const v = e.target.value; setLeadId(v); if (v) load(v); }}
+          className="w-full max-w-md rounded-lg border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white focus:border-gold-500 focus:outline-none"
+        >
+          {pickers.length === 0 && <option value="">No deals available</option>}
+          {pickers.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.fullName ?? "—"} — {p.address ?? "no address"} {p.outreachStatus ? `(${p.outreachStatus})` : ""}
+            </option>
+          ))}
+        </select>
+      </div>
+      {loading ? (
+        <p className="mt-4 text-sm text-gray-500">Computing shortlist from live buyer rows…</p>
+      ) : shortlist ? (
+        <div className="mt-4">
+          {shortlist.lead && (
+            <p className="mb-3 text-xs text-gray-500">
+              Deal context: {shortlist.lead.propertyAddress}, {shortlist.lead.propertyCity},{" "}
+              {shortlist.lead.propertyType ?? "—"} · price:{" "}
+              {shortlist.lead.price === null ? "no price data" : fmtDollars(shortlist.lead.price)} (
+              {shortlist.lead.priceSource})
+            </p>
+          )}
+          {shortlist.matches.length === 0 ? (
+            <p className="rounded-xl bg-navy-900/70 p-4 text-sm text-gray-400">
+              No buyer matches on the stored criteria — honest result, nothing invented. As buyers add price bands and
+              rehab budgets, matches firm up automatically.
+            </p>
+          ) : (
+            <ul className="space-y-3">
+              {shortlist.matches.slice(0, 12).map((m) => (
+                <li key={m.buyer.id} className="rounded-xl bg-navy-900/70 p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-white">{m.buyer.name}</span>
+                    <span className="rounded-full bg-gold-500/15 px-2 py-0.5 text-[11px] font-bold text-gold-400">
+                      {m.score}% match
+                    </span>
+                    {m.buyer.verifiedPhone && (
+                      <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] text-emerald-300">
+                        phone verified (public listing)
+                      </span>
+                    )}
+                    {m.buyer.phone && <span className="text-xs text-gray-300">{m.buyer.phone}</span>}
+                  </div>
+                  <ul className="mt-2 space-y-0.5 text-xs">
+                    {m.matched.map((s, i) => (
+                      <li key={i} className="text-emerald-400">✓ {s}</li>
+                    ))}
+                    {m.missed.map((s, i) => (
+                      <li key={i} className="text-amber-400">✗ {s}</li>
+                    ))}
+                    {m.neutral.map((s, i) => (
+                      <li key={i} className="text-gray-600">· {s}</li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+              {shortlist.matches.length > 12 && (
+                <p className="text-xs text-gray-500">…{shortlist.matches.length - 12} more matches (top 12 shown).</p>
+              )}
+            </ul>
+          )}
+        </div>
+      ) : (
+        <p className="mt-4 text-sm text-gray-500">No deal selected — choose a deal above.</p>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Tab 3 — Transaction Command Center (D3, Steps 8 & 9)
+// ═══════════════════════════════════════════════════════════════════════════
+/** Shortlist for a FIXED lead (e.g. the transaction's seller) — computed live
+ *  from real buyer rows; recommendation only, nothing is ever sent. */
+function BuyerShortlistCard({ leadId }: { leadId: string | null }) {
+  const [shortlist, setShortlist] = useState<{ lead: LeadForMatch | null; matches: BuyerMatchResult[] } | null>(null);
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    setShortlist(null);
+    if (!leadId) { setLoading(false); return; }
+    fetchDealShortlist({ data: { leadId } })
+      .then((res) => { if (alive) setShortlist(res); })
+      .catch(() => { if (alive) setShortlist({ lead: null, matches: [] }); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [leadId]);
+  return (
+    <div className="rounded-2xl border border-navy-700 bg-navy-800 p-6">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-400">Buyer shortlist — this deal</h3>
+          <p className="mt-1 text-xs text-gray-500">
+            Auto-matched from your buyer database. Recommendation only —{" "}
+            <span className="font-medium text-gray-400">outreach is manual and owner-approved; nothing is ever promised or sent to a buyer.</span>
+          </p>
+        </div>
+        <button
+          onClick={() => leadId && fetchDealShortlist({ data: { leadId } }).then(setShortlist)}
+          disabled={!leadId || loading}
+          className="rounded-lg border border-navy-600 px-3 py-1.5 text-xs font-medium text-gray-300 transition-colors hover:border-gold-500/60 disabled:opacity-40"
+        >
+          {loading ? "Computing…" : "Recompute"}
+        </button>
+      </div>
+      <div className="mt-4">
+        {loading ? (
+          <p className="text-sm text-gray-500">Computing shortlist from live buyer rows…</p>
+        ) : !leadId ? (
+          <p className="text-sm text-gray-500">No linked lead — nothing to match.</p>
+        ) : shortlist && shortlist.matches.length === 0 ? (
+          <p className="rounded-xl bg-navy-900/70 p-4 text-sm text-gray-400">
+            No buyer matches on the stored criteria — honest result, nothing invented.
+          </p>
+        ) : shortlist ? (
+          <ul className="space-y-2">
+            {shortlist.matches.slice(0, 10).map((m) => (
+              <li key={m.buyer.id} className="rounded-xl bg-navy-900/70 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-semibold text-white">{m.buyer.name}</span>
+                  <span className="rounded-full bg-gold-500/15 px-2 py-0.5 text-[11px] font-bold text-gold-400">{m.score}%</span>
+                  {m.buyer.phone && <span className="text-xs text-gray-300">{m.buyer.phone}</span>}
+                  {m.buyer.verifiedPhone && <span className="text-[10px] text-emerald-400">public-verified</span>}
+                </div>
+                <ul className="mt-1.5 space-y-0.5 text-xs">
+                  {m.matched.map((s, i) => <li key={i} className="text-emerald-400">✓ {s}</li>)}
+                  {m.missed.map((s, i) => <li key={i} className="text-amber-400">✗ {s}</li>)}
+                  {m.neutral.map((s, i) => <li key={i} className="text-gray-600">· {s}</li>)}
+                </ul>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-gray-500">No deal selected.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+const ARC_NEXT_LABEL: Record<string, string> = {
+  qualified: "Ready to record contract signed (needs approval)",
+  offer: "Ready to record contract signed (needs approval)",
+  negotiation: "Ready to record contract signed (needs approval)",
+  contract_sent: "Ready to record contract signed (needs approval)",
+  contract_signed: "Ready: advance to buyer matched",
+  buyer_matched: "Ready: move toward closing (title)",
+  title: "In title — closing workflow",
+  closed: "Closed",
+  assignment_paid: "Closed — assignment paid",
+};
+const OUTREACH_LABELS: Record<string, string> = {
+  new: "New", contactable: "Contactable", outreach_queued: "Queued", contact_attempted: "Contact attempted",
+  connected: "Connected", qualified: "Qualified", offer: "Offer", negotiation: "Negotiation",
+  contract_sent: "Contract sent", contract_signed: "Contract signed", buyer_matched: "Buyer matched",
+  title: "Title", closed: "Closed", assignment_paid: "Assignment paid", follow_up: "Follow-up",
+  dnc: "DNC", do_not_mail: "Do not mail", opted_out: "Opted out", invalid_contact: "Invalid contact",
+  wrong_number: "Wrong number", not_interested: "Not interested", dead_lead: "Dead lead",
+};
+function outreachLabel(status: string | null | undefined): string {
+  return OUTREACH_LABELS[status ?? ""] ?? (status ? status.replace(/_/g, " ") : "—");
+}
+const ARC_SHORTCUTS: Array<{ to: "contract_signed" | "buyer_matched" | "title"; label: string; desc: string }> = [
+  { to: "contract_signed", label: "Record contract signed", desc: "walks the approved offer arc; gated by a 'contract' approval" },
+  { to: "buyer_matched", label: "Advance to buyer matched", desc: "forward arc after the contract is signed (no new gate)" },
+  { to: "title", label: "Move toward closing (title)", desc: "opens title — contract status → 'title_open'" },
+];
+const ARC_LABEL: Record<string, string> = {
+  contract_signed: "contract signed",
+  buyer_matched: "buyer matched",
+  title: "title",
+};
+
+function TransactionCommandCenterTab() {
+  const [cc, setCc] = useState<TransactionCommandCenterData | null>(null);
+  const [selected, setSelected] = useState<TransactionRow | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [shortlistKey, setShortlistKey] = useState<string | null>(null);
+  const refresh = async () => {
+    const d = await fetchTransactionCC();
+    setCc(d);
+    if (selected && !d.transactions.some((t) => t.contractId === selected.contractId)) {
+      setSelected(null);
+    }
+  };
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const handleShortcut = async (to: "contract_signed" | "buyer_matched" | "title") => {
+    if (!selected) return;
+    setBusy(to);
+    setMsg(null);
+    const res: ArcAdvanceResult = await runArcAdvance({ data: { contractId: selected.contractId, to } });
+    if ("approvalRequested" in res && res.approvalRequested) {
+      setMsg({
+        ok: true,
+        text: `Approval requested (${res.kinds.join(" + ")}) — decide it on /approvals, then press "${ARC_LABEL[to]}" again to finish the arc step.`,
+      });
+    } else if (res.success) {
+      setMsg({ ok: true, text: `Arc advanced to ${ARC_LABEL[to]}.` });
+    } else {
+      setMsg({ ok: false, text: res.error });
+    }
+    await refresh();
+    setBusy(null);
+  };
+  const totals = cc?.totals ?? { transactions: 0, needsAttention: 0, overdueSteps: 0, closingWithin7d: 0, missingTitle: 0, cancelled: 0 };
+  const empty = cc?.transactions.length === 0;
+  return (
+    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-white">Transaction Command Center</h1>
+        <p className="mt-1 text-sm text-gray-400">
+          Every transaction that needs your attention — overdue checklist steps, closings inside 7 days, missing
+          title companies — computed live from the closing workflow tables. No rows are ever invented; with zero
+          contracts this screen honestly reads zero.
+        </p>
+      </div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        {([
+          ["Transactions", totals.transactions],
+          ["Need attention", totals.needsAttention],
+          ["Overdue steps", totals.overdueSteps],
+          ["Closing ≤ 7 days", totals.closingWithin7d],
+          ["Missing title co", totals.missingTitle],
+          ["Cancelled", totals.cancelled],
+        ] as const).map(([label, n]) => (
+          <div key={label} className="rounded-2xl border border-navy-700 bg-navy-800 p-4">
+            <p className="text-[11px] uppercase tracking-wider text-gray-500">{label}</p>
+            <p className={`mt-1 text-2xl font-bold ${n > 0 ? "text-gold-400" : "text-gray-300"}`}>{n}</p>
+          </div>
+        ))}
+      </div>
+      {empty && cc?.dbOk ? (
+        <div className="mt-6 rounded-2xl border border-navy-700 bg-navy-800 p-10 text-center">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-navy-700">
+            <svg className="h-8 w-8 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          </div>
+          <h2 className="text-lg font-semibold text-white">0 transactions — 0 blocked items</h2>
+          <p className="mx-auto mt-2 max-w-lg text-sm text-gray-400">
+            This is the correct production state. A transaction appears here only when a real contract is signed;
+            the closing-arc shortcuts, due-attention flags and buyer shortlists activate the moment the first one
+            exists.
+          </p>
+        </div>
+      ) : cc ? (
+        <div className="mt-6 flex flex-col gap-6 lg:flex-row lg:items-start">
+          <div className="w-full shrink-0 lg:w-96">
+            <div className="rounded-2xl border border-navy-700 bg-navy-800 p-3">
+              <p className="px-2 pb-2 pt-1 text-xs font-semibold uppercase tracking-wider text-gray-500">
+                Transactions
+              </p>
+              <ul className="space-y-1.5">
+                {cc.transactions.map((t) => (
+                  <li key={t.contractId}>
+                    <button
+                      onClick={() => { setSelected(t); setShortlistKey(`${t.contractId}-${Date.now()}`); }}
+                      className={`w-full rounded-xl px-3 py-2.5 text-left transition-colors ${
+                        selected?.contractId === t.contractId
+                          ? "border border-gold-500/30 bg-gold-500/10"
+                          : "border border-transparent hover:bg-navy-700/50"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-sm font-medium text-white">{t.address ?? "—"}</span>
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${STATUS_BADGE[t.status] ?? "bg-navy-700 text-gray-400"}`}>
+                          {STATUS_LABELS[t.status] ?? t.status}
+                        </span>
+                      </div>
+                      {t.attention.length > 0 ? (
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          {t.attention.map((a, i) => (
+                            <span key={i} className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] text-amber-300">
+                              {a.kind === "overdue_checklist" ? `⏱ ${a.label}` : a.label}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-1 text-[10px] text-gray-600">no attention items</p>
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <p className="px-2 pt-2 text-[11px] text-gray-500">
+                {cc.totals.needsAttention} of {cc.totals.transactions} need attention · {cc.totals.overdueSteps} overdue steps
+              </p>
+            </div>
+          </div>
+          {selected ? (
+            <div className="min-w-0 flex-1 space-y-4">
+              <div className="rounded-2xl border border-navy-700 bg-navy-800 p-6">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-400">Transaction detail</h3>
+                    <p className="mt-1 text-sm text-white">{selected.address ?? "—"}</p>
+                    <p className="text-xs text-gray-500">
+                      {selected.fullName ?? "no seller name"} · expected close {fmtDate(selected.expectedCloseDate)} · title co:{" "}
+                      {selected.titleCompany || "—"}
+                    </p>
+                  </div>
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_BADGE[selected.status] ?? "bg-navy-700 text-gray-400"}`}>
+                    {STATUS_LABELS[selected.status] ?? selected.status}
+                  </span>
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-xl bg-navy-900/70 p-3">
+                    <p className="text-[11px] text-gray-500">Lead outreach arc</p>
+                    <p className="mt-0.5 text-sm font-medium text-white">{outreachLabel(selected.leadOutreachStatus)}</p>
+                    <p className="mt-1 text-[11px] text-gray-500">{ARC_NEXT_LABEL[selected.leadOutreachStatus ?? ""] ?? "—"}</p>
+                  </div>
+                  <div className="rounded-xl bg-navy-900/70 p-3">
+                    <p className="text-[11px] text-gray-500">Closing checklist</p>
+                    <p className="mt-0.5 text-sm font-medium text-white">
+                      {selected.checklist.done}/{selected.checklist.total} done
+                      {selected.checklist.overdue > 0 && <span className="text-amber-400"> · {selected.checklist.overdue} overdue</span>}
+                    </p>
+                  </div>
+                </div>
+                {selected.attention.length > 0 ? (
+                  <ul className="mt-4 space-y-1">
+                    {selected.attention.map((a, i) => (
+                      <li key={i} className="flex items-center gap-2 text-sm text-amber-300">
+                        <span className="text-gold-400">⚠</span> {a.label} {a.date ? `(${fmtDate(a.date)})` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-4 text-sm text-gray-500">No attention items for this transaction.</p>
+                )}
+              </div>
+              <div className="rounded-2xl border border-navy-700 bg-navy-800 p-6">
+                <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-400">Closing arc shortcuts</h3>
+                <p className="mt-1 text-xs text-gray-500">
+                  Owner-gated steps through the compliance state machine — nothing is ever bypassed; gated steps
+                  request an approval that you decide on /approvals before the arc moves.
+                </p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  {ARC_SHORTCUTS.map((s) => (
+                    <button
+                      key={s.to}
+                      onClick={() => handleShortcut(s.to)}
+                      disabled={busy !== null || selected.status === "closed" || selected.status === "cancelled"}
+                      className="rounded-xl border border-navy-600 bg-navy-900/70 p-3 text-left transition-colors hover:border-gold-500/50 disabled:opacity-40"
+                    >
+                      <p className="text-sm font-semibold text-white">{s.label}</p>
+                      <p className="mt-1 text-[11px] text-gray-500">{s.desc}</p>
+                    </button>
+                  ))}
+                </div>
+                {msg && (
+                  <p className={`mt-3 rounded-lg border px-3 py-2 text-sm ${msg.ok ? "border-emerald-500/30 bg-emerald-950/40 text-emerald-300" : "border-red-500/30 bg-red-950/40 text-red-300"}`}>
+                    {msg.text}
+                  </p>
+                )}
+              </div>
+              <BuyerShortlistCard key={shortlistKey ?? undefined} leadId={selected.leadId} />
+            </div>
+          ) : (
+            <div className="min-w-0 flex-1 rounded-2xl border border-navy-700 bg-navy-800 p-10 text-center text-sm text-gray-500">
+              Select a transaction to see its due-attention, closing-arc shortcuts and buyer shortlist.
+            </div>
+          )}
+        </div>
+      ) : null}
+      <div className="mt-8">
+        <BuyerShortlistPanel />
+      </div>
+    </div>
+  );
+}
+
 // Page (tab switcher)
 // ═══════════════════════════════════════════════════════════════════════════
 
 function ContractsPage() {
-  const [tab, setTab] = useState<"closing" | "builder">("closing");
+  const [tab, setTab] = useState<"closing" | "builder" | "center">("center");
   return (
     <div className="min-h-dvh bg-navy-950">
       <div className="border-b border-navy-700 bg-navy-900/60">
         <div className="mx-auto flex max-w-7xl gap-1 px-4 pt-4 sm:px-6 lg:px-8">
           {([
+            ["center", "Command Center"],
             ["closing", "Closing Workflow"],
             ["builder", "Contract Builder"],
           ] as const).map(([key, label]) => (
@@ -1325,7 +1767,7 @@ function ContractsPage() {
           ))}
         </div>
       </div>
-      {tab === "closing" ? <ClosingWorkflowTab /> : <ContractBuilderTab />}
+      {tab === "center" ? <TransactionCommandCenterTab /> : tab === "closing" ? <ClosingWorkflowTab /> : <ContractBuilderTab />}
     </div>
   );
 }
