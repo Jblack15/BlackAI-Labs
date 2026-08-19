@@ -59,6 +59,18 @@ export function Header() {
                 Operations
               </Link>
               <Link
+                to="/performance"
+                className="text-sm font-medium text-gray-300 transition-colors hover:text-white"
+              >
+                Performance
+              </Link>
+              <Link
+                to="/briefing"
+                className="text-sm font-medium text-gray-300 transition-colors hover:text-white"
+              >
+                Briefing
+              </Link>
+              <Link
                 to="/command-center"
                 className="text-sm font-medium text-gray-300 transition-colors hover:text-white"
               >

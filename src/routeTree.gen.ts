@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApprovalsRouteImport } from './routes/approvals'
+import { Route as BriefingRouteImport } from './routes/briefing'
 import { Route as BuyersRouteImport } from './routes/buyers'
 import { Route as CalculatorRouteImport } from './routes/calculator'
 import { Route as CommandCenterRouteImport } from './routes/command-center'
@@ -20,6 +21,7 @@ import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as GetOfferRouteImport } from './routes/get-offer'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as OperationsRouteImport } from './routes/operations'
+import { Route as PerformanceRouteImport } from './routes/performance'
 import { Route as SellFastRouteImport } from './routes/sell-fast'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ThankYouRouteImport } from './routes/thank-you'
@@ -49,6 +51,11 @@ const IndexRoute = IndexRouteImport.update({
 const ApprovalsRoute = ApprovalsRouteImport.update({
   id: '/approvals',
   path: '/approvals',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BriefingRoute = BriefingRouteImport.update({
+  id: '/briefing',
+  path: '/briefing',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BuyersRoute = BuyersRouteImport.update({
@@ -94,6 +101,11 @@ const LoginRoute = LoginRouteImport.update({
 const OperationsRoute = OperationsRouteImport.update({
   id: '/operations',
   path: '/operations',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PerformanceRoute = PerformanceRouteImport.update({
+  id: '/performance',
+  path: '/performance',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SellFastRoute = SellFastRouteImport.update({
@@ -200,6 +212,7 @@ const ApiSkipTraceMonitorRoute = ApiSkipTraceMonitorRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/approvals': typeof ApprovalsRoute
+  '/briefing': typeof BriefingRoute
   '/buyers': typeof BuyersRoute
   '/calculator': typeof CalculatorRoute
   '/command-center': typeof CommandCenterRoute
@@ -209,6 +222,7 @@ export interface FileRoutesByFullPath {
   '/get-offer': typeof GetOfferRoute
   '/login': typeof LoginRoute
   '/operations': typeof OperationsRoute
+  '/performance': typeof PerformanceRoute
   '/sell-fast': typeof SellFastRoute
   '/settings': typeof SettingsRoute
   '/thank-you': typeof ThankYouRoute
@@ -233,6 +247,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/approvals': typeof ApprovalsRoute
+  '/briefing': typeof BriefingRoute
   '/buyers': typeof BuyersRoute
   '/calculator': typeof CalculatorRoute
   '/command-center': typeof CommandCenterRoute
@@ -242,6 +257,7 @@ export interface FileRoutesByTo {
   '/get-offer': typeof GetOfferRoute
   '/login': typeof LoginRoute
   '/operations': typeof OperationsRoute
+  '/performance': typeof PerformanceRoute
   '/sell-fast': typeof SellFastRoute
   '/settings': typeof SettingsRoute
   '/thank-you': typeof ThankYouRoute
@@ -267,6 +283,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/approvals': typeof ApprovalsRoute
+  '/briefing': typeof BriefingRoute
   '/buyers': typeof BuyersRoute
   '/calculator': typeof CalculatorRoute
   '/command-center': typeof CommandCenterRoute
@@ -276,6 +293,7 @@ export interface FileRoutesById {
   '/get-offer': typeof GetOfferRoute
   '/login': typeof LoginRoute
   '/operations': typeof OperationsRoute
+  '/performance': typeof PerformanceRoute
   '/sell-fast': typeof SellFastRoute
   '/settings': typeof SettingsRoute
   '/thank-you': typeof ThankYouRoute
@@ -302,6 +320,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/approvals'
+    | '/briefing'
     | '/buyers'
     | '/calculator'
     | '/command-center'
@@ -311,6 +330,7 @@ export interface FileRouteTypes {
     | '/get-offer'
     | '/login'
     | '/operations'
+    | '/performance'
     | '/sell-fast'
     | '/settings'
     | '/thank-you'
@@ -335,6 +355,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/approvals'
+    | '/briefing'
     | '/buyers'
     | '/calculator'
     | '/command-center'
@@ -344,6 +365,7 @@ export interface FileRouteTypes {
     | '/get-offer'
     | '/login'
     | '/operations'
+    | '/performance'
     | '/sell-fast'
     | '/settings'
     | '/thank-you'
@@ -368,6 +390,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/approvals'
+    | '/briefing'
     | '/buyers'
     | '/calculator'
     | '/command-center'
@@ -377,6 +400,7 @@ export interface FileRouteTypes {
     | '/get-offer'
     | '/login'
     | '/operations'
+    | '/performance'
     | '/sell-fast'
     | '/settings'
     | '/thank-you'
@@ -402,6 +426,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ApprovalsRoute: typeof ApprovalsRoute
+  BriefingRoute: typeof BriefingRoute
   BuyersRoute: typeof BuyersRoute
   CalculatorRoute: typeof CalculatorRoute
   CommandCenterRoute: typeof CommandCenterRoute
@@ -411,6 +436,7 @@ export interface RootRouteChildren {
   GetOfferRoute: typeof GetOfferRoute
   LoginRoute: typeof LoginRoute
   OperationsRoute: typeof OperationsRoute
+  PerformanceRoute: typeof PerformanceRoute
   SellFastRoute: typeof SellFastRoute
   SettingsRoute: typeof SettingsRoute
   ThankYouRoute: typeof ThankYouRoute
@@ -447,6 +473,13 @@ declare module '@tanstack/react-router' {
       path: '/approvals'
       fullPath: '/approvals'
       preLoaderRoute: typeof ApprovalsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/briefing': {
+      id: '/briefing'
+      path: '/briefing'
+      fullPath: '/briefing'
+      preLoaderRoute: typeof BriefingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/buyers': {
@@ -510,6 +543,13 @@ declare module '@tanstack/react-router' {
       path: '/operations'
       fullPath: '/operations'
       preLoaderRoute: typeof OperationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/performance': {
+      id: '/performance'
+      path: '/performance'
+      fullPath: '/performance'
+      preLoaderRoute: typeof PerformanceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sell-fast': {
@@ -658,6 +698,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApprovalsRoute: ApprovalsRoute,
+  BriefingRoute: BriefingRoute,
   BuyersRoute: BuyersRoute,
   CalculatorRoute: CalculatorRoute,
   CommandCenterRoute: CommandCenterRoute,
@@ -667,6 +708,7 @@ const rootRouteChildren: RootRouteChildren = {
   GetOfferRoute: GetOfferRoute,
   LoginRoute: LoginRoute,
   OperationsRoute: OperationsRoute,
+  PerformanceRoute: PerformanceRoute,
   SellFastRoute: SellFastRoute,
   SettingsRoute: SettingsRoute,
   ThankYouRoute: ThankYouRoute,
