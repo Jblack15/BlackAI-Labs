@@ -71,6 +71,12 @@ export function Header() {
                 Briefing
               </Link>
               <Link
+                to="/channels"
+                className="text-sm font-medium text-gray-300 transition-colors hover:text-white"
+              >
+                Channels
+              </Link>
+              <Link
                 to="/command-center"
                 className="text-sm font-medium text-gray-300 transition-colors hover:text-white"
               >
