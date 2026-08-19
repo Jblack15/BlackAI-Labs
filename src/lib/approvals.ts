@@ -57,6 +57,7 @@ export const APPROVAL_KINDS = [
   "spend",
   "campaign_change",
   "sensitive_communication",
+  "channel_campaign",
 ] as const;
 export type ApprovalKind = (typeof APPROVAL_KINDS)[number];
 export const APPROVAL_REF_TYPES = ["lead", "contract", "campaign", "none"] as const;

@@ -65,6 +65,7 @@ const KIND_LABELS: Record<string, string> = {
   spend: "Spend (over cap)",
   campaign_change: "Campaign change",
   sensitive_communication: "Sensitive communication",
+  channel_campaign: "Channel campaign (SMS/email)",
 };
 const KIND_DESCRIPTIONS: Record<string, string> = {
   offer: "Final offer to a seller (also covers negotiation beyond approved parameters)",
@@ -73,6 +74,7 @@ const KIND_DESCRIPTIONS: Record<string, string> = {
   spend: "Real money spend above the campaign's approved cap",
   campaign_change: "Campaign status switch (active/pause/cancel) or budget/cap edit",
   sensitive_communication: "Sensitive seller communication",
+  channel_campaign: "Turn an outbound channel (SMS or email) ON for a specific campaign — requires an approved provider + budget first",
 };
 const STATUS_STYLES: Record<string, string> = {
   pending: "bg-gold-500/15 text-gold-400",
