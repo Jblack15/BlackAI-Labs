@@ -175,12 +175,10 @@ export const CHANNEL_STEP11: Record<SendChannel, ChannelStep11> = {
   },
 };
 
-const ACTIVATE_REASON =
-  (channel: SendChannel) =>
-  (missing: string[]): string =>
-    `Requires an approved provider + budget + owner consent. Currently missing: ${
-      missing.length ? missing.join(", ") : "owner approval"
-    } — the Activate control stays disabled until all gates are met.`;
+const ACTIVATE_REASON = (channel: SendChannel, missing: string[]): string =>
+  `Requires an approved provider + budget + owner consent for ${channel.toUpperCase()}. Currently missing: ${
+    missing.length ? missing.join(", ") : "owner approval"
+  } — the Activate control stays disabled until all gates are met.`;
 
 async function approvedChannelCampaignCount(): Promise<number> {
   try {
@@ -207,7 +205,7 @@ export async function getChannelStatus(channel: SendChannel): Promise<ChannelSta
     missing: cfg.missing,
     step11: CHANNEL_STEP11[channel],
     activateDisabled: true,
-    activateReason: ACTIVATE_REASON(channel)(cfg.missing),
+    activateReason: ACTIVATE_REASON(channel, cfg.missing),
     approvedCampaigns,
   };
 }
