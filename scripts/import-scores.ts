@@ -256,5 +256,20 @@ const scored = await sql`SELECT COUNT(*)::int AS n FROM leads WHERE score IS NOT
 console.log(`leads with score: ${scored[0].n} (expect 6,556)`);
 const apnCount = await sql`SELECT COUNT(*)::int AS n FROM leads WHERE apn IS NOT NULL`;
 console.log(`leads with apn: ${apnCount[0].n}`);
+// ---- audit row for the score import (audit §10 gap 2) ---------------------
+const { logOutreachAudit } = await import("../src/lib/compliance");
+await logOutreachAudit({
+  channel: "score_import" as unknown as Parameters<
+    typeof logOutreachAudit
+  >[0]["channel"],
+  direction: "internal" as unknown as Parameters<
+    typeof logOutreachAudit
+  >[0]["direction"],
+  status: "completed" as unknown as Parameters<
+    typeof logOutreachAudit
+  >[0]["status"],
+  reason: `Score import backfill: ${payload.length} leads scored/updated, ${unmatched} CSV rows unmatched, ${skippedNoScore} rows skipped (no score), priorities refreshed (HOT/HIGH/MEDIUM/LOW/DEAD recomputed).`,
+  operator: "import-scores",
+} as unknown as Parameters<typeof logOutreachAudit>[0]);
 console.log("Done.");
 process.exit(0);

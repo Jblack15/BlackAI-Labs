@@ -232,7 +232,9 @@ export interface SellerSummaryDbLead extends SellerSummaryLead {
 /**
  * Batch-regenerate leads.seller_summary for every scored lead (score_factors
  * IS NOT NULL — today the 6,556 PropStream-scored leads) plus any lead whose
- * priority queue is HOT/HIGH even if unscored. Single read, single write.
+ * priority queue is HOT/HIGH even if unscored, plus every TRACED lead (so a
+ * trace import never leaves a stale "Contact: NOT_TRACED" summary behind —
+ * audit §4.1 / D0). Single read, single write.
  * Never fabricates: unscored/unknown dimensions simply read as unknown.
  */
 export async function refreshSellerSummaries(): Promise<{ updated: number }> {
@@ -246,6 +248,7 @@ export async function refreshSellerSummaries(): Promise<{ updated: number }> {
            last_contact_at, next_action, next_action_due, seller_notes
     FROM leads
     WHERE score_factors IS NOT NULL OR priority_queue IN ('HOT', 'HIGH')
+       OR trace_status = 'TRACED'
   `) as Array<Record<string, unknown>>;
 
   const payload = rows.map((r) => ({
@@ -261,6 +264,26 @@ export async function refreshSellerSummaries(): Promise<{ updated: number }> {
       FROM jsonb_to_recordset(${JSON.stringify(payload)}) AS v(id uuid, summary text)
       WHERE l.id = v.id
     `;
+  }
+  // Audit the batch refresh (audit §10 gap 3): a written summary refresh is a
+  // state change the owner should be able to trace. Dynamic import keeps this
+  // lib out of the client bundle; logging never throws (logOutreachAudit
+  // swallows its own errors).
+  try {
+    const { logOutreachAudit } = await import("~/lib/compliance");
+    await logOutreachAudit({
+      channel: "seller_summary_refresh" as unknown as Parameters<
+        typeof logOutreachAudit
+      >[0]["channel"],
+      direction: "internal" as unknown as Parameters<
+        typeof logOutreachAudit
+      >[0]["direction"],
+      status: "updated" as unknown as Parameters<typeof logOutreachAudit>[0]["status"],
+      reason: `Batch seller_summary refresh: ${payload.length} lead(s) regenerated from live score / priority_queue / trace_status / contactable fields.`,
+      operator: "refreshSellerSummaries",
+    } as unknown as Parameters<typeof logOutreachAudit>[0]);
+  } catch {
+    // audit must never break the refresh
   }
   return { updated: payload.length };
 }

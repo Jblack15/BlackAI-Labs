@@ -245,6 +245,25 @@ export async function refreshPriorities(): Promise<{
   }
   const byQueue: Record<string, number> = {};
   for (const p of payload) byQueue[p.q] = (byQueue[p.q] || 0) + 1;
+  // Audit the priority-queue refresh (audit §10 gap 3). Dynamic import keeps
+  // this lib out of the client bundle; logOutreachAudit swallows its own
+  // errors so a logging failure never breaks a refresh.
+  try {
+    const { logOutreachAudit } = await import("~/lib/compliance");
+    await logOutreachAudit({
+      channel: "priority_refresh" as unknown as Parameters<
+        typeof logOutreachAudit
+      >[0]["channel"],
+      direction: "internal" as unknown as Parameters<
+        typeof logOutreachAudit
+      >[0]["direction"],
+      status: "updated" as unknown as Parameters<typeof logOutreachAudit>[0]["status"],
+      reason: `Batch priority_queue refresh: ${payload.length} lead(s) recomputed (HOT ${byQueue.HOT ?? 0} / HIGH ${byQueue.HIGH ?? 0} / MEDIUM ${byQueue.MEDIUM ?? 0} / LOW ${byQueue.LOW ?? 0} / DEAD ${byQueue.DEAD ?? 0}).`,
+      operator: "refreshPriorities",
+    } as unknown as Parameters<typeof logOutreachAudit>[0]);
+  } catch {
+    // audit must never break the refresh
+  }
   return { updated: payload.length, byQueue };
 }
 

@@ -1,0 +1,14 @@
+-- DealFlow AI — business_profile.contact_name schema-drift fix (migration 023)
+-- PH1-D0 (audit section 4.2 / build list item 1).
+--
+-- The LIVE database has business_profile.contact_name but NO migration ever
+-- created it (migration 011 created the table without the column, and PR 35
+-- added both the column and the saveBusinessProfile code path). As a result a
+-- fresh database built from migrations would fail saveBusinessProfile's
+-- INSERT, which references the contact_name column.
+--
+-- This adds the column idempotently, matching the live column exactly:
+-- TEXT, NULL-able, no default (verified against information_schema on
+-- 2026-08-19). One SQL statement only, so the migration runner splits
+-- cleanly, and the file contains no semicolons inside comments.
+ALTER TABLE business_profile ADD COLUMN IF NOT EXISTS contact_name TEXT;

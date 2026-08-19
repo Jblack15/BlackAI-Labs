@@ -34,6 +34,8 @@
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import { readFileSync } from "node:fs";
 import { logOutreachAudit } from "../src/lib/compliance";
+import { refreshSellerSummaries } from "../src/lib/seller-summary";
+import { refreshPriorities } from "../src/lib/prioritization";
 import type { OutreachChannel } from "../src/lib/skip-trace";
 
 const DEFAULT_CSV = "/home/team/shared/leads/Property Export Bexar+Top1000+2026-08.csv";
@@ -289,6 +291,16 @@ export async function runTraceImport(
     `;
   }
 
+  // ---- D0 staleness fix: recompute priorities + seller summaries ---------
+  // The stored seller_summary text is generated from LIVE fields (score,
+  // priority_queue, trace_status, contactable, …). Without a refresh after
+  // this import every traced lead keeps rendering "Contact: NOT_TRACED" and
+  // the 7 HOT leads "Queue: HIGH" (audit §4.1). refreshPriorities() first so
+  // the queue reflects the new contactable set, then refreshSellerSummaries()
+  // so the summary text matches the freshly-imported truth. Both are
+  // idempotent batch updates; safe on a re-run.
+  const priorityRefresh = await refreshPriorities();
+  const summaryRefresh = await refreshSellerSummaries();
   // ---- honest one-row audit summary -------------------------------------
   const tracedCount = matchedPlans.length;
   const phoneCount = (
@@ -304,7 +316,8 @@ export async function runTraceImport(
       `${primaryChosen} phone(s) written (first non-DNC mobile/landline), ${emailFilled} email(s) written, ` +
       `${dncOnly} DNC-only row(s) left NOT CONTACTABLE (no phone stored), ${noApn} row(s) skipped (no APN). ` +
       `phone rows actually written this run=${phoneFilled}, email rows actually written this run=${emailFilled}; ` +
-      `total leads with a phone now=${phoneCount[0]?.n ?? 0}, total contactable (callable)=${contactableCount[0]?.n ?? 0}.`;
+      `total leads with a phone now=${phoneCount[0]?.n ?? 0}, total contactable (callable)=${contactableCount[0]?.n ?? 0}. ` +
+      `Post-import refresh: seller summaries rewritten=${summaryRefresh.updated}, priority queues recomputed=${priorityRefresh.updated}.`;
     await logOutreachAudit({
       channel: "trace_import" as unknown as OutreachChannel, // free-text summary channel (DB col is TEXT)
       direction: "outbound",
