@@ -59,6 +59,8 @@ export interface SellerSummaryLead {
   next_action?: string | null;
   next_action_due?: string | Date | null;
   seller_notes?: string | null;
+  decision_makers?: string | null;
+  deal_potential?: string | null;
 }
 
 export const SELLER_SUMMARY_LABEL =
@@ -208,6 +210,8 @@ export function generateSellerSummary(lead: SellerSummaryLead): string {
   sellerBits.push(`motivation ${lead.motivation?.trim() || "unknown — requires seller contact"}`);
   if (mortgageBal !== null) sellerBits.push(`mortgage ${money(mortgageBal)}${lead.mortgage_lender?.trim() ? ` (${lead.mortgage_lender.trim()})` : ""}`);
   if (lead.lien_info?.trim()) sellerBits.push(`liens: ${lead.lien_info.trim()}`);
+  if (lead.decision_makers?.trim()) sellerBits.push(`decision-makers: ${lead.decision_makers.trim()}`);
+  if (lead.deal_potential?.trim()) sellerBits.push(`deal potential: ${lead.deal_potential.trim()}`);
   lines.push(`Seller pipeline: ${sellerBits.join(" · ")}.`);
 
   if (lead.seller_notes?.trim()) {
@@ -245,11 +249,11 @@ export async function refreshSellerSummaries(): Promise<{ updated: number }> {
            outreach_status, dnc_flag, do_not_mail, opted_out, invalid_contact,
            wrong_number, score_factors, asking_price, desired_close, occupancy,
            motivation, mortgage_balance, mortgage_lender, lien_info,
-           last_contact_at, next_action, next_action_due, seller_notes
+           last_contact_at, next_action, next_action_due, seller_notes,
+           decision_makers, deal_potential
     FROM leads
     WHERE score_factors IS NOT NULL OR priority_queue IN ('HOT', 'HIGH')
-       OR trace_status = 'TRACED'
-  `) as Array<Record<string, unknown>>;
+       OR trace_status = 'TRACED'  `) as Array<Record<string, unknown>>;
 
   const payload = rows.map((r) => ({
     id: r.id as string,
