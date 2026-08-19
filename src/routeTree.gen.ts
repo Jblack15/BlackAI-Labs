@@ -19,6 +19,7 @@ import { Route as CrmRouteImport } from './routes/crm'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as GetOfferRouteImport } from './routes/get-offer'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as OperationsRouteImport } from './routes/operations'
 import { Route as SellFastRouteImport } from './routes/sell-fast'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ThankYouRouteImport } from './routes/thank-you'
@@ -88,6 +89,11 @@ const GetOfferRoute = GetOfferRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OperationsRoute = OperationsRouteImport.update({
+  id: '/operations',
+  path: '/operations',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SellFastRoute = SellFastRouteImport.update({
@@ -202,6 +208,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof DashboardRoute
   '/get-offer': typeof GetOfferRoute
   '/login': typeof LoginRoute
+  '/operations': typeof OperationsRoute
   '/sell-fast': typeof SellFastRoute
   '/settings': typeof SettingsRoute
   '/thank-you': typeof ThankYouRoute
@@ -234,6 +241,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof DashboardRoute
   '/get-offer': typeof GetOfferRoute
   '/login': typeof LoginRoute
+  '/operations': typeof OperationsRoute
   '/sell-fast': typeof SellFastRoute
   '/settings': typeof SettingsRoute
   '/thank-you': typeof ThankYouRoute
@@ -267,6 +275,7 @@ export interface FileRoutesById {
   '/dashboard': typeof DashboardRoute
   '/get-offer': typeof GetOfferRoute
   '/login': typeof LoginRoute
+  '/operations': typeof OperationsRoute
   '/sell-fast': typeof SellFastRoute
   '/settings': typeof SettingsRoute
   '/thank-you': typeof ThankYouRoute
@@ -301,6 +310,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/get-offer'
     | '/login'
+    | '/operations'
     | '/sell-fast'
     | '/settings'
     | '/thank-you'
@@ -333,6 +343,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/get-offer'
     | '/login'
+    | '/operations'
     | '/sell-fast'
     | '/settings'
     | '/thank-you'
@@ -365,6 +376,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/get-offer'
     | '/login'
+    | '/operations'
     | '/sell-fast'
     | '/settings'
     | '/thank-you'
@@ -398,6 +410,7 @@ export interface RootRouteChildren {
   DashboardRoute: typeof DashboardRoute
   GetOfferRoute: typeof GetOfferRoute
   LoginRoute: typeof LoginRoute
+  OperationsRoute: typeof OperationsRoute
   SellFastRoute: typeof SellFastRoute
   SettingsRoute: typeof SettingsRoute
   ThankYouRoute: typeof ThankYouRoute
@@ -490,6 +503,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/operations': {
+      id: '/operations'
+      path: '/operations'
+      fullPath: '/operations'
+      preLoaderRoute: typeof OperationsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sell-fast': {
@@ -646,6 +666,7 @@ const rootRouteChildren: RootRouteChildren = {
   DashboardRoute: DashboardRoute,
   GetOfferRoute: GetOfferRoute,
   LoginRoute: LoginRoute,
+  OperationsRoute: OperationsRoute,
   SellFastRoute: SellFastRoute,
   SettingsRoute: SettingsRoute,
   ThankYouRoute: ThankYouRoute,
