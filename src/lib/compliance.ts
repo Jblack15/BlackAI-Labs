@@ -190,6 +190,7 @@ export async function handleOptOut(
 
 export type BusinessProfile = {
   business_name: string;
+  contact_name: string | null;
   phone: string | null;
   website: string | null;
   return_address: string | null;
@@ -199,6 +200,7 @@ export type BusinessProfile = {
 
 const DEFAULT_PROFILE: BusinessProfile = {
   business_name: "DealForge Properties",
+  contact_name: null,
   phone: null,
   website: null,
   return_address: null,
@@ -210,7 +212,7 @@ const DEFAULT_PROFILE: BusinessProfile = {
 export async function getBusinessProfile(): Promise<BusinessProfile> {
   try {
     const rows = (await sql`
-      SELECT business_name, phone, website, return_address, email, updated_at
+      SELECT business_name, contact_name, phone, website, return_address, email, updated_at
       FROM business_profile WHERE id = 1
     `) as BusinessProfile[];
     if (!rows.length) return { ...DEFAULT_PROFILE };
@@ -220,24 +222,78 @@ export async function getBusinessProfile(): Promise<BusinessProfile> {
   }
 }
 
-/** Persist the identity profile (only the fields the owner can fill). */
+/**
+ * Validate the settable identity fields before persisting (PH1 identity
+ * wiring): email must be a well-formed address (or empty), phone a non-empty
+ * string, website a URL or empty (bare domains like dealforgeproperties.com are
+ * accepted — the templates render them as-is). Returns {valid:false, error}
+ * with a human reason when a field fails; never throws.
+ */
+export function validateBusinessProfile(fields: {
+  business_name?: string;
+  contact_name?: string | null;
+  phone?: string | null;
+  website?: string | null;
+  return_address?: string | null;
+  email?: string | null;
+}): { valid: boolean; error?: string } {
+  if (!fields.business_name?.trim()) return { valid: false, error: "Business name is required" };
+  if (!fields.phone?.trim()) return { valid: false, error: "Phone is required (non-empty string)" };
+  const email = fields.email?.trim() || "";
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { valid: false, error: `Email format is invalid: ${email}` };
+  }
+  const website = fields.website?.trim() || "";
+  if (website) {
+    const candidate = website.includes("://") ? website : `https://${website}`;
+    try {
+      const u = new URL(candidate);
+      if (!u.hostname || !u.hostname.includes(".")) {
+        return { valid: false, error: `Website URL is invalid: ${website}` };
+      }
+    } catch {
+      return { valid: false, error: `Website URL is invalid: ${website}` };
+    }
+  }
+  return { valid: true };
+}
+
+/** Persist the identity profile (only the fields the owner can fill). Every
+ *  successful update is written to the outreach audit trail (channel
+ *  'settings_identity', direction 'outbound', status 'sent') so identity
+ *  changes are never silent — the settings panel audit log shows who changed
+ *  the business identity and when. */
 export async function saveBusinessProfile(
-  fields: Partial<Pick<BusinessProfile, "business_name" | "phone" | "website" | "return_address" | "email">>,
+  fields: Partial<Pick<BusinessProfile, "business_name" | "contact_name" | "phone" | "website" | "return_address" | "email">>,
 ): Promise<{ success: boolean; profile: BusinessProfile; error?: string }> {
   try {
+    const check = validateBusinessProfile(fields);
+    if (!check.valid) {
+      return { success: false, profile: await getBusinessProfile(), error: check.error };
+    }
     const next = { ...(await getBusinessProfile()), ...fields };
     await sql`
-      INSERT INTO business_profile (id, business_name, phone, website, return_address, email, updated_at)
-      VALUES (1, ${next.business_name || "DealForge Properties"}, ${next.phone || null}, ${next.website || null}, ${next.return_address || null}, ${next.email || null}, now())
+      INSERT INTO business_profile (id, business_name, contact_name, phone, website, return_address, email, updated_at)
+      VALUES (1, ${next.business_name || "DealForge Properties"}, ${next.contact_name || null}, ${next.phone || null}, ${next.website || null}, ${next.return_address || null}, ${next.email || null}, now())
       ON CONFLICT (id) DO UPDATE SET
         business_name = EXCLUDED.business_name,
+        contact_name = EXCLUDED.contact_name,
         phone = EXCLUDED.phone,
         website = EXCLUDED.website,
         return_address = EXCLUDED.return_address,
         email = EXCLUDED.email,
         updated_at = now()
     `;
-    return { success: true, profile: await getBusinessProfile() };
+    const profile = await getBusinessProfile();
+    await logOutreachAudit({
+      channel: "settings_identity" as unknown as OutreachChannel,
+      direction: "outbound",
+      status: "sent",
+      reason: "Business identity updated from Settings",
+      contentPreview: `${profile.contact_name || ""} · ${profile.business_name} · ${profile.phone || ""}`,
+      operator: "owner",
+    });
+    return { success: true, profile };
   } catch (err) {
     return { success: false, profile: await getBusinessProfile(), error: err instanceof Error ? err.message : "Failed to save profile" };
   }
@@ -285,7 +341,7 @@ export type ComplianceSummary = {
   };
   audit_log_rows: number;
   identity: BusinessProfile;
-  identityComplete: { business_name: boolean; website: boolean; return_address: boolean; phone: boolean; email: boolean };
+  identityComplete: { business_name: boolean; contact_name: boolean; website: boolean; return_address: boolean; phone: boolean; email: boolean };
 };
 
 /**
@@ -346,6 +402,7 @@ export async function getComplianceSummary(): Promise<ComplianceSummary> {
     identity,
     identityComplete: {
       business_name: !!identity.business_name?.trim(),
+      contact_name: !!identity.contact_name?.trim(),
       website: !!identity.website?.trim(),
       return_address: !!identity.return_address?.trim(),
       phone: !!identity.phone?.trim(),

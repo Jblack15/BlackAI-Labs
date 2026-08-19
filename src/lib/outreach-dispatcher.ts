@@ -66,20 +66,20 @@ async function sendSmsStep(row: DueOutreachRow): Promise<StepOutcome> {
     return { ok: false, error: smsCheck.reason || "SMS blocked by compliance" };
   }
   if (!row.phone) return { ok: false, error: "Lead has no phone number" };
-  const businessName = await getBusinessName();
+  const { businessName, contactName } = await getBusinessIdentity();
   // Outreach status spine (PH1-B6): sendSms bumps the lead to contact_attempted
   // on a real transmission — no status handling needed here.
-  const result = await sendSms(row.phone, template(row.full_name, buildAddress(row), businessName), row.lead_id);
+  const result = await sendSms(row.phone, template(row.full_name, buildAddress(row), businessName, contactName), row.lead_id);
   return result.success ? { ok: true } : { ok: false, error: result.error || "SMS send failed" };
 }
 
-async function getBusinessName(): Promise<string> {
+async function getBusinessIdentity(): Promise<{ businessName: string; contactName: string | null }> {
   try {
     const { getBusinessProfile } = await import("~/lib/compliance");
     const profile = await getBusinessProfile();
-    return profile.business_name || "DealForge Properties";
+    return { businessName: profile.business_name || "DealForge Properties", contactName: profile.contact_name || null };
   } catch {
-    return "DealForge Properties";
+    return { businessName: "DealForge Properties", contactName: null };
   }
 }
 
@@ -124,6 +124,7 @@ export async function dispatchDueOutreach(limit = 100): Promise<DispatchResult> 
   const profile = await getBusinessProfile();
   const identity: EmailIdentity = {
     businessName: profile.business_name || "DealForge Properties",
+    contactName: profile.contact_name || null,
     website: profile.website || "",
     phone: profile.phone,
     email: profile.email,

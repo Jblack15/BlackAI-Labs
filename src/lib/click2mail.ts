@@ -276,6 +276,7 @@ export async function sendPostcards(
   const profile = await getBusinessProfile();
   const identity: PostcardIdentity = {
     businessName: profile.business_name || "DealForge Properties",
+    contactName: profile.contact_name || null,
     phone: profile.phone,
     website: profile.website,
   };

@@ -280,11 +280,18 @@ const updateLeadStatus = createServerFn({ method: "POST", middleware: [requireOw
       if (lead?.phone) {
         const { sendSms } = await import("~/lib/sms");
         const address = `${lead.property_address}, ${lead.property_city}, ${lead.property_state}`;
+        // Sender identity from business_profile (PH1 identity wiring) — outbound
+        // SMS signs with the real contact + business name, never a hardcode.
+        const { getBusinessProfile } = await import("~/lib/compliance");
+        const profile = await getBusinessProfile();
+        const sender = profile.contact_name?.trim()
+          ? `${profile.contact_name.trim()} from ${profile.business_name || "DealForge Properties"}`
+          : profile.business_name || "DealForge Properties";
         let smsMessage = "";
 
         switch (data.status) {
           case "contacted":
-            smsMessage = `Hi ${lead.full_name}, this is DealForge Properties. We'd like to discuss your property at ${address}. When's a good time to talk?`;
+            smsMessage = `Hi ${lead.full_name}, this is ${sender}. We'd like to discuss your property at ${address}. When's a good time to talk?`;
             break;
           case "offer_sent":
             smsMessage = `Great news ${lead.full_name}! Your appointment is confirmed. We'll see you soon to discuss your cash offer for ${address}.`;
@@ -328,6 +335,15 @@ const fetchLeadSmsLogs = createServerFn({ method: "GET", middleware: [requireOwn
     }
   });
 
+const fetchBusinessIdentity = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] }).handler(async () => {
+  try {
+    const { getBusinessProfile } = await import("~/lib/compliance");
+    const p = await getBusinessProfile();
+    return { businessName: p.business_name || "DealForge Properties", contactName: p.contact_name || null };
+  } catch {
+    return { businessName: "DealForge Properties", contactName: null };
+  }
+});
 const skipTrace = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] }).validator((data: unknown) => data as { ids?: string[] }).handler(async ({ data }) => { try { const { skipTraceLeads } = await import("~/lib/skip-trace"); return await skipTraceLeads(data.ids); } catch (e) { return { success: false, updated: 0, error: e instanceof Error ? e.message : "Skip trace failed" }; } });
 // --- Skip-trace monitor (PH1-B1) ---
 const fetchSkipTraceJobs = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] }).handler(async () => {
@@ -1026,6 +1042,12 @@ function LeadDetailModal({
   leadApprovalHistoryRows: ApprovalRow[];
 }) {
   const [smsMessage, setSmsMessage] = useState("");
+  // Business identity from business_profile (PH1 identity wiring) — the SMS
+  // composer defaults sign with the real contact + business name, never a hardcode.
+  const [identity, setIdentity] = useState({ businessName: "DealForge Properties", contactName: null as string | null });
+  useEffect(() => {
+    fetchBusinessIdentity().then((i) => { if (i) setIdentity(i); }).catch(() => {});
+  }, []);
   const [mailCampaign, setMailCampaign] = useState("auto");
   // Outreach status actions (PH1-B6) — replaces the B2 compliance buttons; every
   // terminal mark now transitions the state machine AND syncs the suppression
@@ -1234,21 +1256,22 @@ function LeadDetailModal({
   );
 
   // Pre-populate SMS message based on lead status
+  const identitySender = identity.contactName ? `${identity.contactName} from ${identity.businessName}` : identity.businessName;
   const defaultMessages: Record<string, string> = {
     new: `Hi ${lead.full_name}, thanks for your interest in selling your property at ${lead.property_address}. We'd love to learn more. When's a good time to chat?`,
-    contacted: `Hi ${lead.full_name}, following up from DealForge Properties about your property at ${lead.property_address}. Let us know if you have any questions!`,
+    contacted: `Hi ${lead.full_name}, following up from ${identitySender} about your property at ${lead.property_address}. Let us know if you have any questions!`,
     qualified: `Hi ${lead.full_name}, great news — your property at ${lead.property_address} qualifies for a cash offer. Let's discuss the next steps!`,
     appointment: `Hi ${lead.full_name}, just a reminder about your upcoming appointment to discuss your cash offer for ${lead.property_address}. Looking forward to it!`,
     offer: `Hi ${lead.full_name}, following up on the cash offer we prepared for your property at ${lead.property_address}. Have you had a chance to review it?`,
     contract: `Hi ${lead.full_name}, your contract for ${lead.property_address} is moving forward. We'll keep you updated on the closing process!`,
-    closed: `Hi ${lead.full_name}, congratulations on closing the sale of ${lead.property_address}! Thank you for choosing DealForge Properties.`,
+    closed: `Hi ${lead.full_name}, congratulations on closing the sale of ${lead.property_address}! Thank you for choosing ${identity.businessName}.`,
     dead: "",
   };
 
   // Init message when modal opens
   useEffect(() => {
     setSmsMessage(defaultMessages[lead.status] || "");
-  }, [lead.id, lead.status]);
+  }, [lead.id, lead.status, identity]);
 
   const handleSendSms = () => {
     if (!smsMessage.trim()) return;
