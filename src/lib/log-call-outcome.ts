@@ -39,7 +39,6 @@
 // text, or email anyone.
 import { sql } from "~/db";
 import { OUTREACH_TRANSITIONS } from "~/lib/outreach-status-map";
-import type { OutreachStatus } from "~/lib/outreach-status-map";
 import { transitionOutreachStatus } from "~/lib/outreach-status";
 import { recordSuppression, logOutreachAudit } from "~/lib/compliance";
 import { saveSellerCrmFields } from "~/lib/seller-crm";
@@ -50,8 +49,6 @@ import {
   getCallOutcomeOption,
   extractSellerHints,
   type CallOutcomeValue,
-  type CallOutcomeOption,
-  type CallOutcomeSuppression,
 } from "~/lib/call-outcome-vocab";
 
 export {
@@ -61,6 +58,30 @@ export {
   extractSellerHints,
 };
 export type { CallOutcomeValue, CallOutcomeOption, CallOutcomeSuppression, HeuristicExtract } from "~/lib/call-outcome-vocab";
+
+// --- Deterministic path walking ----------------------------------------------
+// Uses the B6 map as the single source of truth: BFS over the forward edges
+// from `from` to `to`. Returns the hop list (exclusive of `from`). Empty
+// array when from === to; null when unreachable.
+
+export function findOutreachPath(from: string, to: string): string[] | null {
+  if (from === to) return [];
+  const visited = new Set<string>([from]);
+  const queue: Array<{ status: string; path: string[] }> = [{ status: from, path: [] }];
+  while (queue.length > 0) {
+    const { status, path } = queue.shift()!;
+    const nexts = OUTREACH_TRANSITIONS[status];
+    if (!nexts) continue;
+    for (const n of nexts) {
+      if (visited.has(n)) continue;
+      const newPath = [...path, n];
+      if (n === to) return newPath;
+      visited.add(n);
+      queue.push({ status: n, path: newPath });
+    }
+  }
+  return null;
+}
 
 export interface LogCallOutcomeInput {
   /** Outcome code from CALL_OUTCOME_VALUES. */
@@ -269,7 +290,7 @@ export async function logCallOutcome(
         .filter(Boolean)
         .join(" · "),
       operator,
-    });
+    } as unknown as Parameters<typeof logOutreachAudit>[0]);
 
     return {
       success: true,

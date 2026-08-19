@@ -85,7 +85,6 @@ export function LogCallOutcomeModal({
   };
 
   const buildInput = (): Record<string, unknown> => {
-    const put = (k: string, v: string) => (v.trim() !== "" ? { ...{}, [k]: v } : {});
     const i: Record<string, unknown> = { outcome };
     if (summary.trim()) i.sellerSummary = summary;
     if (askingPrice.trim()) i.askingPrice = Number(askingPrice);
