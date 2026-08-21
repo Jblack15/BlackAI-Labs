@@ -121,30 +121,32 @@ export function Header() {
               </Link>
             </>
           ) : (
-            <Link
-              to="/login"
-              className="text-sm font-medium text-gray-500 transition-colors hover:text-gray-300"
-            >
-              Owner sign-in
-            </Link>
+            <>
+              <Link
+                to="/login"
+                className="text-sm font-medium text-gray-500 transition-colors hover:text-gray-300"
+              >
+                Owner sign-in
+              </Link>
+              <div className="group relative">
+                <button className="flex items-center gap-1 text-sm font-medium text-gray-300 transition-colors hover:text-white">
+                  Sell Your Home
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                <div className="absolute left-1/2 top-full mt-2 w-56 -translate-x-1/2 rounded-lg border border-navy-700 bg-navy-800 py-2 opacity-0 shadow-xl transition-opacity group-hover:opacity-100">
+                  <DropDownLinks />
+                </div>
+              </div>
+              <Link
+                to="/get-offer"
+                className="rounded-lg bg-gold-500 px-5 py-2.5 text-sm font-semibold text-navy-900 transition-colors hover:bg-gold-400"
+              >
+                Get Your Cash Offer
+              </Link>
+            </>
           )}
-          <div className="group relative">
-            <button className="flex items-center gap-1 text-sm font-medium text-gray-300 transition-colors hover:text-white">
-              Sell Your Home
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-            <div className="absolute left-1/2 top-full mt-2 w-56 -translate-x-1/2 rounded-lg border border-navy-700 bg-navy-800 py-2 opacity-0 shadow-xl transition-opacity group-hover:opacity-100">
-              <DropDownLinks />
-            </div>
-          </div>
-          <Link
-            to="/get-offer"
-            className="rounded-lg bg-gold-500 px-5 py-2.5 text-sm font-semibold text-navy-900 transition-colors hover:bg-gold-400"
-          >
-            Get Your Cash Offer
-          </Link>
         </nav>
         <Link
           to="/get-offer"
