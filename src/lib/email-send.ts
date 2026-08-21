@@ -58,6 +58,24 @@ export type SendSellerEmailResult =
 
 const FALLBACK_EMAIL = "dealforge-properties-8480c335@ctomail.io";
 
+/**
+ * Resolve the OPERATIONAL send/reply address for a seller email. This is the
+ * inbox seller replies and opt-outs land in, so it must never resolve to a
+ * paused/non-receivable inbox. Priority:
+ *   1. process.env.EMAIL_FROM  — explicit override (in production the working
+ *                                Gmail inbox, dealforgeproperties@gmail.com),
+ *   2. process.env.SMTP_USER   — the authenticated sending account
+ *                                (dealforgeproperties@gmail.com),
+ *   3. business_profile.email  — the public brand identity, as today's fallback.
+ *
+ * The single resolved value is used for `from`, `replyTo` AND the template
+ * identity's email (footer opt-out mailto), so all replies/opt-outs land in a
+ * live mailbox rather than the cto inbox, which is provider-paused.
+ */
+export function resolveWorkingReplyAddress(profileEmail: string | null | undefined): string {
+  return process.env.EMAIL_FROM || process.env.SMTP_USER || profileEmail || FALLBACK_EMAIL;
+}
+
 function toIdentity(p: Awaited<ReturnType<typeof getBusinessProfile>>): SellerEmailIdentity {
   return {
     businessName: p.business_name || "DealForge Properties",
@@ -143,10 +161,16 @@ export async function sendSellerEmail(
   if (!to) {
     throw new SellerEmailBlockedError("compliance", "Blocked: lead has no email address on file — nothing to send to.");
   }
+  // Operational send/reply inbox, resolved by priority (EMAIL_FROM → SMTP_USER
+  // → business_profile.email). Used for BOTH the SMTP from/replyTo AND the
+  // template identity's email, so a seller's reply or opt-out (footer mailto)
+  // lands in a LIVE inbox — never the provider-paused cto inbox.
+  const workingEmail = resolveWorkingReplyAddress(profile.email);
+  const sendIdentity: SellerEmailIdentity = { ...identity, email: workingEmail };
   const { subject, html, text } = {
-    subject: template.subject(lead, identity),
-    html: template.html(lead, identity),
-    text: template.text(lead, identity),
+    subject: template.subject(lead, sendIdentity),
+    html: template.html(lead, sendIdentity),
+    text: template.text(lead, sendIdentity),
   };
 
   const host = process.env.SMTP_HOST;
@@ -167,10 +191,14 @@ export async function sendSellerEmail(
       secure: port === 465,
       auth: { user, pass },
     });
-    const from = profile.email || process.env.EMAIL_FROM || `${identity.businessName} <${FALLBACK_EMAIL}>`;
-    // Reply-To always points at the business identity email so seller replies
-    // land where the owner sees them (and can be routed into handleOptOut).
-    const replyTo = profile.email || process.env.EMAIL_FROM || FALLBACK_EMAIL;
+    // From + Reply-To resolve to the working inbox (EMAIL_FROM → SMTP_USER →
+    // profile email). Brand identity is preserved in the From display name;
+    // the address itself is a live, receivable inbox so seller replies and
+    // opt-outs (handleOptOut path) actually reach the owner.
+    const from = `${identity.businessName} <${workingEmail}>`;
+    // Reply-To = the same working address, so replies land where the owner
+    // sees them (and can be routed into handleOptOut).
+    const replyTo = workingEmail;
     const info = await transport.sendMail({ from, to, replyTo, subject, html, text });
 
     // Log every successful transmission (compliance-core audit trail).
