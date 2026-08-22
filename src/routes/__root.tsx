@@ -9,6 +9,8 @@ import type { ReactNode } from "react";
 
 import { Header } from "~/components/Header";
 import { Footer } from "~/components/Footer";
+import { MobileNav } from "~/components/MobileNav";
+import { PwaInit } from "~/components/PwaInit";
 import appCss from "~/styles/app.css?url";
 
 const SITE_URL = "https://6bb790b5d4bbac352680a157949e23cb.ctonew.app";
@@ -21,9 +23,16 @@ export const Route = createRootRoute({
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { title: SITE_TITLE },
       { name: "description", content: SITE_DESCRIPTION },
+      // PWA / mobile-web-app metadata (single-owner app-shell installability
+      // for the PWA build; brand colors match the app.css navy/gold tokens).
+      { name: "theme-color", content: "#0a1628" },
+      { name: "mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
+      { name: "apple-mobile-web-app-title", content: "DealForge" },
 
       // OpenGraph
       { property: "og:title", content: SITE_TITLE },
@@ -46,7 +55,10 @@ export const Route = createRootRoute({
     links: [
       { rel: "stylesheet", href: appCss },
       { rel: "canonical", href: SITE_URL },
+      { rel: "manifest", href: "/manifest.webmanifest" },
       { rel: "icon", type: "image/png", sizes: "32x32", href: "/favicon-32.png" },
+      { rel: "icon", type: "image/png", sizes: "192x192", href: "/icons/icon-192.png" },
+      { rel: "icon", type: "image/png", sizes: "512x512", href: "/icons/icon-512.png" },
       { rel: "apple-touch-icon", sizes: "180x180", href: "/favicon-180.png" },
     ],
   }),
@@ -82,6 +94,10 @@ function RootComponent() {
           <Outlet />
         </main>
         <Footer />
+        {/* Reserve space so the fixed bottom tab bar never covers footer
+            content on small screens (mobile only; hidden at md+ alongside it). */}
+        <div className="h-20 md:hidden" aria-hidden="true" />
+        <MobileNav />
       </div>
     </RootDocument>
   );
@@ -96,6 +112,8 @@ function RootDocument({ children }: { children: ReactNode }) {
       <body>
         {children}
         <Scripts />
+        {/* Registers the PWA service worker on the client only (SSR-safe). */}
+        <PwaInit />
       </body>
     </html>
   );
