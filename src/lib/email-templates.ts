@@ -140,32 +140,45 @@ function p(html: string): string {
 
 // --- The four honest templates -------------------------------------------------
 export const EMAIL_TEMPLATES: SellerEmailTemplate[] = [
-  // 1. Initial outreach — grounded in the stored property address, no value
-  //    claims, no urgency, clear opt-out.
+  // 1. Initial outreach — grounded in the stored property address (street only
+  //    in the subject), tax-delinquent framing, reply-only CTA, no value claims,
+  //    no urgency, no phone. Footer appends identity + physical address + opt-out.
   {
     key: "initial",
     followUpDays: 4,
-    subject: (lead, identity) => `Hello from ${identity.businessName} about ${propertyRef(lead)}`,
+    subject: (lead) => {
+      const street = lead.property_address?.trim();
+      return street
+        ? `Your ${street} property on the Bexar County delinquent list`
+        : `Your property on the Bexar County delinquent list`;
+    },
     html: (lead, identity) =>
       shellHtml(
         p(`Hi ${greetingName(lead)},`) +
           p(
-            `I'm ${identity.contactName || identity.businessName} with ${identity.businessName}, a local home buyer in the San Antonio area. ` +
-              `We're reaching out about ${propertyRef(lead)} — we buy homes in any condition, as-is, and we handle the costs on our side.`,
+            `I'm ${identity.contactName || identity.businessName} with ${identity.businessName}, a home buyer here in the San Antonio / Bexar County area. ` +
+              `I'm writing because your property at ${propertyRef(lead)} appeared on the county's delinquent tax list, and I wanted to check in.`,
           ) +
           p(
-            `If you've ever thought about selling, we'd welcome a no-pressure conversation. There's no obligation and no cost to you — ` +
-              `just honest answers about how the process works.`,
+            `I know that can happen for a lot of reasons — a hard stretch, an inherited or vacant home, or being out of the area. ` +
+              `Whatever the situation, I'm not here to add pressure. I just want you to know there's a simple way out if you want one.`,
           ) +
-          p(`Simply reply to this email and we'll take it from there.`),
+          p(
+            `I buy homes as-is for cash and handle all the costs on my side — no repairs, commissions, or closing fees on you — ` +
+              `and you can avoid the added penalties that come with unpaid taxes. I'll give you a straightforward, no-obligation number, and the choice is entirely yours.`,
+          ) +
+          p(`If you'd like to talk it through, just reply to this email. Either way, no strings attached.`),
         identity,
       ),
     text: (lead, identity) =>
-      `Hello ${greetingName(lead)},\n\n` +
-      `My name is ${identity.contactName || identity.businessName} with ${identity.businessName}, a local home buyer in the San Antonio area. ` +
-      `We're reaching out about ${propertyRef(lead)}. We buy homes in any condition, as-is, and we handle the costs on our side.\n\n` +
-      `If you'd ever consider selling, we'd love a no-pressure conversation — no obligation, no cost to you. ` +
-      `Just reply to this email and we'll take it from there.\n\n${footerText(identity)}`,
+      `Hi ${greetingName(lead)},\n\n` +
+      `I'm ${identity.contactName || identity.businessName} with ${identity.businessName}, a home buyer here in the San Antonio / Bexar County area. ` +
+      `I'm writing because your property at ${propertyRef(lead)} appeared on the county's delinquent tax list, and I wanted to check in.\n\n` +
+      `I know that can happen for a lot of reasons — a hard stretch, an inherited or vacant home, or being out of the area. ` +
+      `Whatever the situation, I'm not here to add pressure. I just want you to know there's a simple way out if you want one.\n\n` +
+      `I buy homes as-is for cash and handle all the costs on my side — no repairs, commissions, or closing fees on you — ` +
+      `and you can avoid the added penalties that come with unpaid taxes. I'll give you a straightforward, no-obligation number, and the choice is entirely yours.\n\n` +
+      `If you'd like to talk it through, just reply to this email. Either way, no strings attached.\n\n${footerText(identity)}`,
   },
 
   // 2. Follow-up 1 (day ~4) — a gentle, honest check-in.
