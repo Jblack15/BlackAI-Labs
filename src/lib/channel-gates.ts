@@ -7,13 +7,14 @@
 //   every future SMS/email send path MUST call assertChannelSendAllowed()
 //   first, and it refuses the send until ALL of these gates are met:
 //
-//   (1) PROVIDER  — the channel's provider config is present (env). Today
-//                   there is NO SMS provider (SMS_PROVIDER absent; vendors
-//                   rejected under zero-spend) and NO email SMTP (SMTP_HOST /
-//                   SMTP_USER / SMTP_PASS absent) — so BOTH channels
-//                   hard-refuse EVERY send, always. No autonomous outbound,
-//                   period, until the owner approves a provider + budget and
-//                   the credentials are actually configured.
+//   (1) PROVIDER  — the channel's provider config is present (env). SMS now
+//                   requires SMS_ENABLED=true AND all three Telnyx credentials
+//                   (TELNYX_API_KEY / TELNYX_PHONE_NUMBER /
+//                   TELNYX_MESSAGING_PROFILE_ID — A2P 10DLC). Until the owner
+//                   supplies those, SMS hard-refuses every send. Email requires
+//                   SMTP_HOST / SMTP_USER / SMTP_PASS. No autonomous outbound
+//                   until the owner approves a provider + budget and the
+//                   credentials are actually configured.
 //   (2) CAMPAIGN  — the send references an owner-APPROVED per-campaign record:
 //                   an approval_requests row with kind='channel_campaign',
 //                   ref_type='campaign', ref_id=<campaign UUID>, status=
@@ -41,6 +42,7 @@
 import { sql } from "~/db";
 import { hasApproval } from "~/lib/approvals";
 import { assertOutreachAllowed, type OutreachCheckLead } from "~/lib/skip-trace";
+import { readTelnyxEnv } from "~/lib/telnyx";
 
 export type SendChannel = "sms" | "email";
 export type ChannelGateName = "provider" | "campaign" | "compliance";
@@ -50,11 +52,12 @@ export type ChannelGateResult =
   | { allowed: false; gate: ChannelGateName; reason: string };
 
 // --- Gate 1: provider-config presence (the hard off-switch today) ------------
-// SMS: any future provider is registered under SMS_PROVIDER (e.g. "twilio" or
-// "bandwidth"). Absent today -> OFF.
+// SMS: Telnyx, registered by TELNYX_API_KEY + TELNYX_PHONE_NUMBER +
+// TELNYX_MESSAGING_PROFILE_ID (A2P 10DLC) AND the explicit SMS_ENABLED=true
+// opt-in (default OFF). Absent -> OFF / NOT CONNECTED.
 // Email: SMTP credentials, same env names the existing email-outreach lib uses
-// (SMTP_HOST + SMTP_USER + SMTP_PASS). Absent today -> OFF.
-const SMS_PROVIDER_ENV = "SMS_PROVIDER";
+// (SMTP_HOST + SMTP_USER + SMTP_PASS). Absent -> OFF.
+const SMS_ENABLE_FLAG_ENV = "SMS_ENABLED";
 const SMTP_REQUIRED_ENVS = ["SMTP_HOST", "SMTP_USER", "SMTP_PASS"] as const;
 
 export type ProviderConfigStatus = {
@@ -62,13 +65,29 @@ export type ProviderConfigStatus = {
   provider: string | null;
   /** Env var names that are missing (empty array when configured). */
   missing: string[];
+  /** Honest SMS channel state ("CONNECTED" | "NOT CONNECTED" | "DISABLED");
+   *  undefined for email. Drives the /channels + compliance UI. */
+  state?: "CONNECTED" | "NOT CONNECTED" | "DISABLED";
 };
 
 export function providerConfigStatus(channel: SendChannel): ProviderConfigStatus {
   if (channel === "sms") {
-    const provider = (process.env[SMS_PROVIDER_ENV] || "").trim();
-    if (!provider) return { configured: false, provider: null, missing: [SMS_PROVIDER_ENV] };
-    return { configured: true, provider, missing: [] };
+    const telnyx = readTelnyxEnv();
+    const enabled = process.env[SMS_ENABLE_FLAG_ENV] === "true";
+    const missing: string[] = [];
+    if (!enabled) missing.push(`${SMS_ENABLE_FLAG_ENV}=true`);
+    missing.push(...telnyx.missing);
+    if (missing.length) {
+      // Creds missing is the dominant signal ("NOT CONNECTED"); creds present
+      // but flag off is "DISABLED".
+      return {
+        configured: false,
+        provider: null,
+        missing,
+        state: telnyx.configured ? "DISABLED" : "NOT CONNECTED",
+      };
+    }
+    return { configured: true, provider: "telnyx", missing: [], state: "CONNECTED" };
   }
   const missing = SMTP_REQUIRED_ENVS.filter((k) => !(process.env[k] || "").trim());
   if (missing.length) return { configured: false, provider: null, missing: [...missing] };
@@ -147,10 +166,11 @@ export type ChannelStep11 = {
 export type ChannelStatus = {
   channel: SendChannel;
   label: string;
-  status: "OFF" | "NOT CONFIGURED";
+  status: "OFF" | "NOT CONFIGURED" | "CONNECTED";
   configured: boolean;
   provider: string | null;
   missing: string[];
+  state?: "CONNECTED" | "NOT CONNECTED" | "DISABLED";
   step11: ChannelStep11;
   activateDisabled: true;
   activateReason: string;
@@ -160,11 +180,11 @@ export type ChannelStatus = {
 
 export const CHANNEL_STEP11: Record<SendChannel, ChannelStep11> = {
   sms: {
-    cost: "~$0.0075 per SMS segment via a to-be-approved provider (estimate — no provider connected today)",
+    cost: "~$0.0075 per SMS segment via Telnyx (estimate — provider unconnected; credentials not configured)",
     benefit:
-      "Fast first touch on DNC-clean numbers; opt-out honored instantly with consent record + audit. Not built yet — this card is only the gated option.",
-    requiredBudget: "To be approved — no budget exists ($0 spend mode; no provider).",
-    approval: "Owner-only via /approvals (kind = channel_campaign) AFTER provider + budget are approved.",
+      "Fast first touch on DNC-clean numbers; opt-out honored instantly via the existing handleOptOut path (STOP/UNSUBSCRIBE → opted_out + consent record + audit). Ready to send the moment Telnyx credentials + A2P 10DLC approval land.",
+    requiredBudget: "Owner-approved Telnyx spend budget — none exists today.",
+    approval: "Owner-only via /approvals (kind = channel_campaign) AFTER Telnyx credentials + A2P 10DLC are approved.",
   },
   email: {
     cost: "Via an SMTP provider at to-be-quoted volume (estimate — no SMTP configured today)",
@@ -196,13 +216,26 @@ async function approvedChannelCampaignCount(): Promise<number> {
 export async function getChannelStatus(channel: SendChannel): Promise<ChannelStatus> {
   const cfg = providerConfigStatus(channel);
   const approvedCampaigns = await approvedChannelCampaignCount();
+  // SMS status is honest: CONNECTED (all gates on the provider side) vs
+  // NOT CONFIGURED (creds missing) vs OFF (SMS_ENABLED flag off => DISABLED).
+  const status: ChannelStatus["status"] =
+    channel === "sms"
+      ? cfg.state === "CONNECTED"
+        ? "CONNECTED"
+        : cfg.state === "DISABLED"
+          ? "OFF"
+          : "NOT CONFIGURED"
+      : cfg.configured
+        ? "NOT CONFIGURED"
+        : "OFF";
   return {
     channel,
     label: channel === "sms" ? "SMS (text)" : "Email",
-    status: cfg.configured ? "NOT CONFIGURED" : "OFF",
+    status,
     configured: cfg.configured,
     provider: cfg.provider,
     missing: cfg.missing,
+    state: cfg.state,
     step11: CHANNEL_STEP11[channel],
     activateDisabled: true,
     activateReason: ACTIVATE_REASON(channel, cfg.missing),
@@ -223,9 +256,16 @@ export type ChannelsOverview = {
  *  config (env) and real DB rows; nothing is claimed as connected that is not. */
 export async function getChannelsOverview(): Promise<ChannelsOverview> {
   const [sms, email] = await Promise.all([getChannelStatus("sms"), getChannelStatus("email")]);
+  const smsState =
+    sms.state === "CONNECTED"
+      ? "CONNECTED (Telnyx)"
+      : sms.state === "DISABLED"
+        ? "DISABLED (SMS_ENABLED off)"
+        : "NOT CONNECTED (Telnyx credentials missing)";
+  const emailState = email.configured ? "CONFIGURED (SMTP creds present)" : "not configured (SMTP absent)";
   const summary =
-    sms.provider === null && email.provider === null
-      ? "SMS: OFF — provider not connected · Email: OFF — SMTP not configured · All outbound hardware-off (zero-spend mode)."
-      : `${sms.label}: ${sms.status} · ${email.label}: ${email.status} · Zero-spend mode active.`;
+    sms.state === "CONNECTED" || email.configured
+      ? `SMS: ${smsState} · Email: ${emailState} · Zero-spend mode active.`
+      : `SMS: ${smsState} · Email: OFF — SMTP not configured · All outbound hardware-off (zero-spend mode).`;
   return { sms, email, zeroSpend: true, summary, gateFunction: "assertChannelSendAllowed" };
 }

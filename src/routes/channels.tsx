@@ -6,8 +6,9 @@
 // OFF / NOT CONFIGURED and every Activate control is visibly disabled until:
 //   1. the owner approves a compliant provider + budget (zero-spend mode today
 //      means no provider, no budget, no sends — ever),
-//   2. provider credentials are actually configured (env: SMS_PROVIDER for
-//      SMS, SMTP_HOST/USER/PASS for email),
+//   2. provider credentials are actually configured (SMS: TELNYX_API_KEY +
+//      TELNYX_PHONE_NUMBER + TELNYX_MESSAGING_PROFILE_ID with SMS_ENABLED=true;
+//      email: SMTP_HOST/USER/PASS),
 //   3. the owner approves a per-campaign channel approval from /approvals
 //      (kind = 'channel_campaign' — the SAME approval store as offers/contracts).
 // Only then does the fail-closed gate lib (src/lib/channel-gates.ts,
@@ -35,21 +36,35 @@ const fetchOverview = createServerFn({ method: "GET", middleware: [requireOwnerM
 
 // --- card -------------------------------------------------------------------
 function ChannelCard({ ch }: { ch: ChannelStatus }) {
-  const off = !ch.configured;
+  // SMS shows three honest states; email keeps its two-state legacy mapping.
+  const badge =
+    ch.channel === "sms"
+      ? ch.state === "CONNECTED"
+        ? { cls: "bg-gold-500/15 text-gold-400", txt: "● CONNECTED" }
+        : ch.state === "DISABLED"
+          ? { cls: "bg-gray-500/15 text-gray-400", txt: "● DISABLED (OFF)" }
+          : { cls: "bg-red-500/15 text-red-400", txt: "● NOT CONNECTED" }
+      : !ch.configured
+        ? { cls: "bg-red-500/15 text-red-400", txt: "● OFF" }
+        : { cls: "bg-gold-500/15 text-gold-400", txt: "NOT CONFIGURED" };
   return (
     <section className="flex flex-col rounded-xl border border-navy-700 bg-navy-900 p-5">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-white">{ch.label}</h2>
         <span
-          className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${
-            off ? "bg-red-500/15 text-red-400" : "bg-gold-500/15 text-gold-400"
-          }`}
+          className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${badge.cls}`}
         >
-          {off ? "● OFF" : "NOT CONFIGURED"}
+          {badge.txt}
         </span>
       </div>
       <p className="mt-2 text-sm text-gray-400">
-        {ch.provider === null ? (
+        {ch.channel === "sms" && ch.state === "DISABLED" ? (
+          <>
+            Telnyx credentials present — channel <strong className="text-gray-200">DISABLED</strong> (
+            <code className="rounded bg-navy-800 px-1.5 py-0.5 text-xs text-gold-300">SMS_ENABLED</code> unset, default
+            OFF).
+          </>
+        ) : ch.provider === null ? (
           <>
             No provider connected — missing{" "}
             <code className="rounded bg-navy-800 px-1.5 py-0.5 text-xs text-gold-300">{ch.missing.join(", ")}</code>{" "}
@@ -102,10 +117,10 @@ function ChannelCard({ ch }: { ch: ChannelStatus }) {
 }
 
 const UNLOCK_STEPS = [
-  ["1", "Approve a compliant provider + budget", "Owner decision (outside the app). Zero-spend mode means no provider and no budget today — nothing is approved."],
-  ["2", "Configure the credentials", 'Ops sets env: SMS_PROVIDER for SMS, or SMTP_HOST + SMTP_USER + SMTP_PASS for email. Today: absent.'],
-  ["3", "Approve the campaign channel in /approvals", "Request a channel_campaign approval for the campaign (or reuse one); the owner approves it. That approval IS the per-campaign ON toggle."],
-  ["4", "Future send path calls the gate", "A later, budget-approved build may wire a provider; every send must first pass assertChannelSendAllowed, which also hard-checks each lead's DNC / opt-out / suppression."],
+  ["1", "Approve a compliant provider + budget", "Owner decision (outside the app). Zero-spend mode means no budget today — nothing is approved."],
+  ["2", "Configure the credentials", "SMS: ops sets TELNYX_API_KEY + TELNYX_PHONE_NUMBER + TELNYX_MESSAGING_PROFILE_ID (A2P 10DLC) and, only after owner approval, SMS_ENABLED=true. Email: SMTP_HOST + SMTP_USER + SMTP_PASS. Today: all absent."],
+  ["3", "Approve the campaign channel in /approvals", "Request a channel_campaign approval for the campaign (or reuse one); the owner approves it. That approval IS the per-campaign ON toggle — every SMS send requires it."],
+  ["4", "Future send path calls the gate", "A send path may transmit only after passing assertChannelSendAllowed, which hard-checks the provider, the owner-approved campaign, and each lead's DNC / opt-out / suppression."],
 ];
 
 // --- page -------------------------------------------------------------------
@@ -146,7 +161,12 @@ function ChannelsPage() {
         <span className="font-semibold text-gold-400">Current state · </span>
         <span className="text-gray-300">{overview.summary}</span>
         <div className="mt-2 text-xs text-gray-500">
-          Verified live: {overview.sms.provider === null ? "SMS_PROVIDER absent" : "SMS provider set"} ·{" "}
+          Verified live:{" "}
+          {overview.sms.state === "CONNECTED"
+            ? "Telnyx connected (SMS_ENABLED=true + all 3 credentials)"
+            : overview.sms.state === "DISABLED"
+              ? "Telnyx credentials present but SMS_ENABLED off"
+              : "Telnyx credentials absent"} ·{" "}
           {overview.email.provider === null ? "SMTP absent" : "SMTP set"} · approved channel campaigns:{" "}
           {overview.sms.approvedCampaigns + overview.email.approvedCampaigns} · gate = {overview.gateFunction}()
         </div>

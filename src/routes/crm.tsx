@@ -323,12 +323,12 @@ const fetchLeadSmsLogs = createServerFn({ method: "GET", middleware: [requireOwn
     try {
       const { sql } = await import("~/db");
       const rows = await sql`
-        SELECT id, lead_id, to_phone, message, status, twilio_sid, created_at
+        SELECT id, lead_id, to_phone, message, status, COALESCE(provider_id, twilio_sid) AS provider_id, created_at
         FROM sms_logs
         WHERE lead_id = ${data.leadId}
         ORDER BY created_at DESC
         LIMIT 5
-      ` as { id: string; lead_id: string; to_phone: string; message: string; status: string; twilio_sid: string | null; created_at: string }[];
+      ` as { id: string; lead_id: string; to_phone: string; message: string; status: string; provider_id: string | null; created_at: string }[];
       return rows.map((r) => ({ ...r, created_at: String(r.created_at) }));
     } catch {
       return [];
@@ -988,7 +988,7 @@ interface SmsLogEntry {
   to_phone: string;
   message: string;
   status: string;
-  twilio_sid: string | null;
+  provider_id: string | null;
   created_at: string;
 }
 
