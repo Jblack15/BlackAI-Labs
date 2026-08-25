@@ -34,36 +34,42 @@ const def = await sql`SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
 ok("approval_requests kind CHECK present", (def as any[]).length === 1);
 ok("kind CHECK includes channel_campaign", has((def as any[])[0]?.def ?? "", "channel_campaign"));
 
-console.log("== 2. honest current state (real env, no provider) ==");
+console.log("== 2. honest current state (real env, dynamic) ==");
 const { providerConfigStatus, assertChannelSendAllowed, getChannelsOverview } = await import("../src/lib/channel-gates");
 const smsCfg = providerConfigStatus("sms");
 const emailCfg = providerConfigStatus("email");
-ok("SMS provider NOT configured (SMS_PROVIDER absent)", smsCfg.configured === false, `missing=${smsCfg.missing.join(",")}`);
-ok("Email SMTP NOT configured (SMTP absent)", emailCfg.configured === false, `missing=${emailCfg.missing.join(",")}`);
+const smsExpectedConfigured = (process.env.SMS_ENABLED === "true") && ["TELNYX_API_KEY","TELNYX_PHONE_NUMBER","TELNYX_MESSAGING_PROFILE_ID"].every((k) => (process.env[k] || "").trim());
+const smtpSet = ["SMTP_HOST","SMTP_USER","SMTP_PASS"].every((k) => (process.env[k] || "").trim());
+ok("SMS provider state matches env (SMS_ENABLED + 3 TELNYX creds)", smsCfg.configured === smsExpectedConfigured, `missing=${smsCfg.missing.join(",")}`);
+ok("Email provider state matches env (SMTP creds)", emailCfg.configured === smtpSet, `missing=${emailCfg.missing.join(",")}`);
 const compliantSmsLead = { phone: "2105550100", email: "no-reply@example.com" };
 const rSms = await assertChannelSendAllowed("sms", compliantSmsLead, { campaignId: "00000000-0000-0000-0000-000000000000" });
 const rEmail = await assertChannelSendAllowed("email", { email: "no-reply@example.com" }, { campaignId: "00000000-0000-0000-0000-000000000000" });
-ok("SMS refuses with provider reason (gate=provider)", rSms.allowed === false && rSms.gate === "provider", rSms.allowed === false ? rSms.reason : "allowed");
-ok("SMS reason names NOT CONFIGURED", rSms.allowed === false && has(rSms.reason, "NOT CONFIGURED"));
-ok("Email refuses with provider reason (gate=provider)", rEmail.allowed === false && rEmail.gate === "provider", rEmail.allowed === false ? rEmail.reason : "allowed");
-ok("Email reason names NOT CONFIGURED", rEmail.allowed === false && has(rEmail.reason, "NOT CONFIGURED"));
+ok("SMS refuses on an unapproved campaign (gate=provider when offline, else campaign)", rSms.allowed === false && (rSms.gate === "provider" || rSms.gate === "campaign"), rSms.allowed === false ? rSms.reason : "allowed");
+if (rSms.allowed === false && rSms.gate === "provider") ok("SMS provider reason names NOT CONFIGURED", has(rSms.reason, "NOT CONFIGURED"));
+ok("Email refuses on an unapproved campaign (gate=provider when offline, else campaign)", rEmail.allowed === false && (rEmail.gate === "provider" || rEmail.gate === "campaign"), rEmail.allowed === false ? rEmail.reason : "allowed");
+if (rEmail.allowed === false && rEmail.gate === "provider") ok("Email provider reason names NOT CONFIGURED", has(rEmail.reason, "NOT CONFIGURED"));
 const overview = await getChannelsOverview();
 ok("overview zeroSpend=true", overview.zeroSpend === true);
-ok("overview sms OFF (provider null)", overview.sms.provider === null);
-ok("overview email OFF (provider null)", overview.email.provider === null);
-ok("overview summary says provider not connected", has(overview.summary, "provider not connected") && has(overview.summary, "SMTP not configured"));
-ok("overview approved campaigns = 0 (real)", overview.sms.approvedCampaigns === 0 && overview.email.approvedCampaigns === 0, `sms=${overview.sms.approvedCampaigns} email=${overview.email.approvedCampaigns}`);
+ok("overview sms state is honest (NOT CONNECTED/DISABLED/CONNECTED)", ["NOT CONNECTED","DISABLED","CONNECTED"].includes(overview.sms.state ?? ""), `state=${overview.sms.state}`);
+ok("overview email provider matches env", (overview.email.provider === null) === (!smtpSet), `provider=${overview.email.provider}`);
+ok("overview summary names both channels honestly", has(overview.summary, "SMS:") && has(overview.summary, "Email:") && (has(overview.summary, "Zero-spend mode active") || has(overview.summary, "zero-spend mode")), overview.summary);
 
 console.log("== 3. simulation — provider present + owner-approved campaign ==");
 // Keep real env in-memory only; restore after.
-const hadSms = process.env.SMS_PROVIDER;
+const hadSms = { enabled: process.env.SMS_ENABLED, key: process.env.TELNYX_API_KEY, from: process.env.TELNYX_PHONE_NUMBER, prof: process.env.TELNYX_MESSAGING_PROFILE_ID };
 const hadSmtp = { h: process.env.SMTP_HOST, u: process.env.SMTP_USER, p: process.env.SMTP_PASS };
-process.env.SMS_PROVIDER = "verify-provider";
+process.env.SMS_ENABLED = "true";
+process.env.TELNYX_API_KEY = "verify-telnyx-key";
+process.env.TELNYX_PHONE_NUMBER = "+13105550142";
+process.env.TELNYX_MESSAGING_PROFILE_ID = "verify-profile";
 process.env.SMTP_HOST = "verify.smtp.example";
 process.env.SMTP_USER = "verify";
 process.env.SMTP_PASS = "verify";
 let campaignId: string | null = null;
 let approvalId: string | null = null;
+const beforeCountRows = await sql`SELECT COUNT(*)::int AS n FROM approval_requests WHERE kind='channel_campaign'`;
+const beforeCampaignApprovals = (beforeCountRows[0] as any).n as number;
 try {
   const ins = await sql`INSERT INTO campaigns (name, channel, status, planned_budget_cents, notes)
     VALUES ('verify-step11-tmp','sms','planned',0,'verify-temp') RETURNING id`;
@@ -98,13 +104,16 @@ try {
   if (approvalId) await sql`DELETE FROM approval_requests WHERE id=${approvalId}`;
   if (campaignId) await sql`DELETE FROM campaigns WHERE id=${campaignId}`;
   // restore real env regardless
-  if (hadSms === undefined) delete process.env.SMS_PROVIDER; else process.env.SMS_PROVIDER = hadSms;
+  if (hadSms.enabled === undefined) delete process.env.SMS_ENABLED; else process.env.SMS_ENABLED = hadSms.enabled;
+  if (hadSms.key === undefined) delete process.env.TELNYX_API_KEY; else process.env.TELNYX_API_KEY = hadSms.key;
+  if (hadSms.from === undefined) delete process.env.TELNYX_PHONE_NUMBER; else process.env.TELNYX_PHONE_NUMBER = hadSms.from;
+  if (hadSms.prof === undefined) delete process.env.TELNYX_MESSAGING_PROFILE_ID; else process.env.TELNYX_MESSAGING_PROFILE_ID = hadSms.prof;
   process.env.SMTP_HOST = hadSmtp.h ?? "";
   process.env.SMTP_USER = hadSmtp.u ?? "";
   process.env.SMTP_PASS = hadSmtp.p ?? "";
 }
 const leftover = await sql`SELECT COUNT(*)::int AS n FROM approval_requests WHERE kind='channel_campaign'`;
-ok("no channel_campaign approvals left after cleanup (zero is correct state)", (leftover[0] as any).n === 0, `n=${(leftover[0] as any).n}`);
+ok("channel_campaign approvals count unchanged after cleanup (back to pre-test count)", (leftover[0] as any).n === beforeCampaignApprovals, `n=${(leftover[0] as any).n} before=${beforeCampaignApprovals}`);
 const campLeft = await sql`SELECT COUNT(*)::int AS n FROM campaigns WHERE name='verify-step11-tmp'`;
 ok("verify campaign removed", (campLeft[0] as any).n === 0);
 

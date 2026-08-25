@@ -20,6 +20,7 @@
 // NOT CONNECTED things are labeled NOT CONNECTED, never claimed as live.
 import { sql } from "~/db";
 import type { OutreachChannel, OutreachCheckResult } from "~/lib/skip-trace";
+import { readTelnyxEnv } from "~/lib/telnyx";
 
 // --- Audit log --------------------------------------------------------------
 
@@ -324,10 +325,34 @@ export async function assertBusinessIdentity(channel: OutreachChannel): Promise<
 
 // --- Compliance summary (settings panel) ------------------------------------
 
+/** Honest SMS channel status for the settings compliance panel:
+ *   CONNECTED (Telnyx creds + SMS_ENABLED=true) | NOT CONNECTED (creds
+ *   missing) | DISABLED (SMS_ENABLED off). Never claims connected otherwise. */
+function buildSmsChannelStatus(): { status: string; detail: string } {
+  const telnyx = readTelnyxEnv();
+  const enabled = process.env.SMS_ENABLED === "true";
+  if (!telnyx.configured) {
+    return {
+      status: "NOT CONNECTED",
+      detail: `Telnyx REQUIRES CREDENTIALS — missing ${telnyx.missing.join(", ")} (TELNYX_API_KEY / TELNYX_PHONE_NUMBER / TELNYX_MESSAGING_PROFILE_ID for A2P 10DLC). No SMS can send.`,
+    };
+  }
+  if (!enabled) {
+    return {
+      status: "DISABLED",
+      detail: "Telnyx credentials present but SMS_ENABLED is unset (default OFF). Set SMS_ENABLED=true only after the owner approves the Telnyx provider + A2P 10DLC campaign.",
+    };
+  }
+  return {
+    status: "CONNECTED",
+    detail: "Telnyx connected (SMS_ENABLED=true + all credentials present) — no outbound SMS has been sent; every send still requires an owner-approved channel_campaign.",
+  };
+}
+
 export type ComplianceSummary = {
   channels: {
     email: { status: "NOT CONNECTED"; detail: string };
-    sms: { status: "NOT CONNECTED"; detail: string };
+    sms: { status: string; detail: string };
     mail: { status: string; detail: string };
     voice: { status: string; detail: string };
   };
@@ -380,7 +405,7 @@ export async function getComplianceSummary(): Promise<ComplianceSummary> {
             ? "SMTP env vars present — no outbound email has been sent"
             : "no SMTP configured (SMTP_HOST/SMTP_USER/SMTP_PASS missing)",
       },
-      sms: { status: "NOT CONNECTED", detail: "channel discontinued 2026-08-12 (owner decision) — sends disabled platform-wide" },
+      sms: buildSmsChannelStatus(),
       mail: {
         status: "EXTERNAL — PILOT STAGED",
         detail: "direct mail runs via PropStream Campaigns / Ballpoint (external) — pilot at Order Summary 2026-08-12, NOTHING SENT; Click2Mail integration in-app is not the active channel",
