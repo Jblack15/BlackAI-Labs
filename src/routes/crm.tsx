@@ -544,6 +544,38 @@ const saveDispositionFields = createServerFn({ method: "POST", middleware: [requ
       return { success: false, error: e instanceof Error ? e.message : "Failed to save disposition" };
     }
   });
+// Quick call-outcome logging (manual dial list): records the owner's manual
+// call result per lead. Reuses the D2 conversation engine; writes the
+// channel='voice' / direction='outbound' audit row + lead mutations (status,
+// flags, follow-up, suppression). Compliant: dnc routes through handleOptOut,
+// wrong_number hard-suppresses the contact.
+const logQuickCallOutcome = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] })
+  .validator((data: unknown) => data as { leadId: string; outcome: string; sellerSummary?: string; nextAction?: string; nextActionDue?: string })
+  .handler(async ({ data }) => {
+    try {
+      const { logCallOutcome } = await import("~/lib/log-call-outcome");
+      return await logCallOutcome(data.leadId, {
+        outcome: data.outcome as never,
+        sellerSummary: data.sellerSummary || undefined,
+        nextAction: data.nextAction,
+        nextActionDue: data.nextActionDue,
+      }, { operator: "owner" });
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : "Failed to log call outcome" };
+    }
+  });
+// Most recent voice call outcome for a lead (Log Call panel "last outcome").
+const fetchLastCallOutcome = createServerFn({ method: "GET", middleware: [requireOwnerMiddleware] })
+  .validator((data: unknown) => data as { leadId: string })
+  .handler(async ({ data }) => {
+    try {
+      const { sql } = await import("~/db");
+      const rows = await sql`SELECT status, created_at FROM outreach_audit_log WHERE lead_id = ${data.leadId} AND channel = 'voice' AND direction = 'outbound' ORDER BY created_at DESC LIMIT 1` as Array<{ status: string; created_at: string }>;
+      return { success: true, outcome: rows[0]?.status ?? null, at: rows[0]?.created_at ?? null };
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : "Failed" };
+    }
+  });
 const bulkOutreach = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] }).handler(async () => { try { const { startBulkOutreach } = await import("~/lib/outreach"); return await startBulkOutreach(); } catch (e) { return { success: false, started: 0, error: e instanceof Error ? e.message : "Outreach failed" }; } });
 const startEmailOutreach = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] }).validator((data: unknown) => data as { leadId: string }).handler(async ({ data }) => { try { const { startEmailOutreach: runDrip } = await import("~/lib/email-outreach"); return await runDrip(data.leadId); } catch (e) { return { success: false, error: e instanceof Error ? e.message : "Email outreach failed" }; } });
 const bulkEmailOutreach = createServerFn({ method: "POST", middleware: [requireOwnerMiddleware] }).handler(async () => { try { const { startBulkEmailOutreach } = await import("~/lib/email-outreach"); return await startBulkEmailOutreach(); } catch (e) { return { success: false, started: 0, error: e instanceof Error ? e.message : "Email outreach failed" }; } });
@@ -992,6 +1024,22 @@ interface SmsLogEntry {
   created_at: string;
 }
 
+interface QuickCallOutcomeDef {
+  value: string;
+  label: string;
+  className: string;
+  terminal: boolean;
+  terminalWarning?: string;
+}
+const QUICK_CALL_OUTCOMES: QuickCallOutcomeDef[] = [
+  { value: "answered", label: "Answered", terminal: false, className: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20" },
+  { value: "voicemail", label: "Voicemail", terminal: false, className: "border-sky-500/40 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20" },
+  { value: "no_answer", label: "No Answer", terminal: false, className: "border-gray-500/40 bg-gray-500/10 text-gray-300 hover:bg-gray-500/20" },
+  { value: "interested", label: "Interested", terminal: false, className: "border-teal-500/40 bg-teal-500/10 text-teal-300 hover:bg-teal-500/20" },
+  { value: "not_interested", label: "Not Interested", terminal: true, terminalWarning: "Marks the lead not interested — no further outreach.", className: "border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/20" },
+  { value: "wrong_number", label: "Wrong #", terminal: true, terminalWarning: "Permanently suppresses this contact from all future outreach.", className: "border-orange-500/40 bg-orange-500/10 text-orange-300 hover:bg-orange-500/20" },
+  { value: "dnc", label: "DNC", terminal: true, terminalWarning: "Do-not-call — permanently suppresses this lead from all future outreach.", className: "border-red-500/50 bg-red-500/20 text-red-200 hover:bg-red-500/30" },
+];
 function LeadDetailModal({
   lead,
   stages,
@@ -1010,6 +1058,7 @@ function LeadDetailModal({
   onMarkTerminal,
   onSaveSellerFields,
   onSaveDisposition,
+  onLogCall,
   onRequestApproval,
   automationBusy,
   pipelineHistory,
@@ -1034,6 +1083,7 @@ function LeadDetailModal({
   onMarkTerminal: (leadId: string, terminal: string) => Promise<{ success: boolean; error?: string }>;
   onSaveSellerFields: (leadId: string, fields: Record<string, unknown>) => Promise<{ success: boolean; error?: string; sellerSummary?: string }>;
   onSaveDisposition: (leadId: string, fields: Record<string, unknown>) => Promise<{ success: boolean; error?: string }>;
+  onLogCall: (leadId: string, input: Record<string, string | undefined>) => Promise<{ success: boolean; error?: string; status?: string; suppressionApplied?: boolean }>;
   onRequestApproval: (leadId: string, kind: "offer" | "contract", details?: string) => Promise<{ success: boolean; error?: string; duplicate?: boolean }>;
   automationBusy: boolean;
   pipelineHistory: PipelineHistoryEntry[];
@@ -1042,6 +1092,41 @@ function LeadDetailModal({
   leadApprovalHistoryRows: ApprovalRow[];
 }) {
   const [smsMessage, setSmsMessage] = useState("");
+  // Quick call-outcome logging (manual dial list): last outcome + note +
+  // one-tap outcomes. Reuses the D2 engine server-side via onLogCall.
+  const [callNote, setCallNote] = useState("");
+  const [callBusy, setCallBusy] = useState<string | null>(null);
+  const [callResult, setCallResult] = useState<{ success: boolean; error?: string; status?: string; suppressionApplied?: boolean } | null>(null);
+  const [lastCallOutcome, setLastCallOutcome] = useState<string | null>(null);
+  useEffect(() => {
+    setCallNote("");
+    setCallResult(null);
+    setLastCallOutcome(null);
+    fetchLastCallOutcome({ data: { leadId: lead.id } })
+      .then((r) => { if (r.success && r.outcome) setLastCallOutcome(r.outcome); })
+      .catch(() => {});
+  }, [lead.id]);
+  const handleLogCall = async (outcome: string) => {
+    if (callBusy) return;
+    const quick = QUICK_CALL_OUTCOMES.find((o) => o.value === outcome);
+    if (quick?.terminal && !window.confirm(`Log "${quick.label}"? ${quick.terminalWarning ?? ""}`)) return;
+    setCallBusy(`Logging ${quick?.label ?? outcome}…`);
+    setCallResult(null);
+    const now = new Date();
+    const due = (days: number) => new Date(now.getTime() + days * 86400000).toISOString().slice(0, 10);
+    const input: Record<string, string | undefined> = { leadId: lead.id, outcome, sellerSummary: callNote.trim() || undefined };
+    if (outcome === "interested") { input.nextAction = "follow up"; input.nextActionDue = due(2); }
+    if (outcome === "voicemail" || outcome === "no_answer") { input.nextAction = "retry call"; input.nextActionDue = due(1); }
+    try {
+      const res = await onLogCall(lead.id, input);
+      setCallResult({ success: res.success, error: res.error, status: res.status, suppressionApplied: res.suppressionApplied });
+      if (res.success) { setCallNote(""); setLastCallOutcome(outcome); }
+    } catch {
+      setCallResult({ success: false, error: "Failed to log call" });
+    } finally {
+      setCallBusy(null);
+    }
+  };
   // Business identity from business_profile (PH1 identity wiring) — the SMS
   // composer defaults sign with the real contact + business name, never a hardcode.
   const [identity, setIdentity] = useState({ businessName: "DealForge Properties", contactName: null as string | null });
@@ -1309,6 +1394,7 @@ function LeadDetailModal({
               {lead.property_address}, {lead.property_city}, {lead.property_state}{" "}
               {lead.property_zip}
             </p>
+            {lead.phone && <p className="mt-0.5 text-sm font-medium text-emerald-300">📞 {lead.phone}</p>}
             <span className="mt-1 inline-flex items-center gap-2">
               <PremiumBadge lead={lead} />
             </span>
@@ -1325,6 +1411,47 @@ function LeadDetailModal({
 
         {/* Body */}
         <div className="space-y-6 px-6 py-4">
+          {/* Log Call (manual dial outcome) */}
+          <div className="rounded-lg border border-emerald-500/30 bg-navy-900/50 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-white">📞 Log Call</h3>
+              <span className="flex items-center gap-2 text-[11px] text-gray-500">
+                {lead.phone && <span className="text-gray-300">Dial: {lead.phone}</span>}
+              </span>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-400">
+              <span className="flex items-center gap-1">Status: <OutreachStatusBadge status={lead.outreach_status} /></span>
+              {lead.last_contact_at && <span>Last contact: {new Date(lead.last_contact_at).toLocaleString()}</span>}
+              {lastCallOutcome && <span>Last outcome: <span className="font-medium text-gray-200">{lastCallOutcome}</span></span>}
+            </div>
+            <textarea
+              value={callNote}
+              onChange={(e) => setCallNote(e.target.value)}
+              placeholder="Optional note (what the owner said)…"
+              rows={2}
+              className="mt-3 w-full rounded-lg border border-navy-700 bg-navy-800 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-emerald-500 focus:outline-none"
+            />
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {QUICK_CALL_OUTCOMES.map((o) => (
+                <button
+                  key={o.value}
+                  onClick={() => handleLogCall(o.value)}
+                  disabled={callBusy !== null}
+                  className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors disabled:opacity-50 ${o.className}`}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+            {callBusy && <p className="mt-2 text-[11px] text-gray-400">{callBusy}</p>}
+            {callResult && (
+              <p className={`mt-2 text-xs ${callResult.success ? "text-emerald-400" : "text-red-400"}`}>
+                {callResult.success
+                  ? `Saved — status: ${callResult.status ?? "updated"}${callResult.suppressionApplied ? " · permanently suppressed: no further outreach" : ""}`
+                  : callResult.error}
+              </p>
+            )}
+          </div>
           {/* Actions */}
           <div className="flex flex-wrap gap-2">
             <button onClick={() => onSkipTrace(lead.id)} disabled={automationBusy} className="rounded-lg border border-teal-500/30 bg-teal-500/10 px-4 py-2 text-sm font-medium text-teal-300 disabled:opacity-50">Skip Trace</button>
@@ -2409,6 +2536,15 @@ function CrmPage() {
       setSelectedLead((prev) => (prev ? refreshed.leads.find((l) => l.id === prev.id) ?? prev : prev));
     }
   };
+  const runLogCall = async (leadId: string, input: Record<string, string | undefined>): Promise<{ success: boolean; error?: string; status?: string; suppressionApplied?: boolean }> => {
+    try {
+      const result = await logQuickCallOutcome({ data: input as never });
+      await refreshLeadState();
+      return result;
+    } catch {
+      return { success: false, error: "Failed to log call" };
+    }
+  };
   const runOutreachStatusChange = async (leadId: string, to: string) => {
     try {
       const result = await setOutreachStatus({ data: { leadId, to } });
@@ -2667,15 +2803,23 @@ function CrmPage() {
   const [sourceFilter, setSourceFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [premiumOnly, setPremiumOnly] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
   const sources = useMemo(() => Array.from(new Set(leads.map((l) => l.lead_source).filter(Boolean))).sort(), [leads]);
-  const visibleLeads = useMemo(() => leads.filter((l) =>
-    (stageFilter === "all" || l.pipeline_stage === stageFilter) &&
-    (sourceFilter === "all" || l.lead_source === sourceFilter) &&
-    (priorityFilter === "all" ||
-      l.priority_queue === priorityFilter ||
-      (priorityFilter === "unscored" && !l.priority_queue)) &&
-    (!premiumOnly || l.premium_lead)
-  ), [leads, stageFilter, sourceFilter, priorityFilter, premiumOnly]);
+  const q = searchTerm.trim().toLowerCase();
+  const visibleLeads = useMemo(() => leads.filter((l) => {
+    const matchesSearch =
+      !q ||
+      (l.full_name || "").toLowerCase().includes(q) ||
+      (l.phone || "").toLowerCase().includes(q) ||
+      (l.property_address || "").toLowerCase().includes(q);
+    return matchesSearch &&
+      (stageFilter === "all" || l.pipeline_stage === stageFilter) &&
+      (sourceFilter === "all" || l.lead_source === sourceFilter) &&
+      (priorityFilter === "all" ||
+        l.priority_queue === priorityFilter ||
+        (priorityFilter === "unscored" && !l.priority_queue)) &&
+      (!premiumOnly || l.premium_lead);
+  }), [leads, stageFilter, sourceFilter, priorityFilter, premiumOnly, q]);
   const pipelineCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     visibleLeads.forEach((l) => {
@@ -2810,6 +2954,12 @@ function CrmPage() {
             })}
           </div>
           <div className="mt-5 flex flex-wrap gap-2">
+            <input
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search name, phone, or address (owner dials from the CSV)…"
+              className="w-full rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-gold-500 focus:outline-none sm:w-72"
+            />
             <select value={stageFilter} onChange={(e) => setStageFilter(e.target.value)} className="rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-gray-300"><option value="all">All stages</option>{stages.map((s) => <option key={s.id} value={s.name}>{stageLabel(s.name)}</option>)}</select>
             <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} className="rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-gray-300"><option value="all">All sources</option>{sources.map((s) => <option key={s} value={s}>{getSourceLabel(s)}</option>)}</select>
             <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)} className="rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-gray-300"><option value="all">All priorities</option><option value="HOT">HOT</option><option value="HIGH">HIGH</option><option value="MEDIUM">MEDIUM</option><option value="LOW">LOW</option><option value="DEAD">DEAD</option><option value="unscored">Unscored</option></select>
@@ -2876,6 +3026,7 @@ function CrmPage() {
           onMarkTerminal={runMarkTerminal}
           onSaveSellerFields={runSaveSellerFields}
           onSaveDisposition={runSaveDisposition}
+          onLogCall={runLogCall}
           onRequestApproval={runRequestApproval}
           automationBusy={automationBusy}
           pipelineHistory={pipelineHistory}
