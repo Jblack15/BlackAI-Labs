@@ -40,9 +40,11 @@
 import { sql } from "~/db";
 import { OUTREACH_TRANSITIONS } from "~/lib/outreach-status-map";
 import { transitionOutreachStatus } from "~/lib/outreach-status";
-import { recordSuppression, logOutreachAudit } from "~/lib/compliance";
+import { handleOptOut, recordSuppression, logOutreachAudit } from "~/lib/compliance";
 import { saveSellerCrmFields } from "~/lib/seller-crm";
 import { computePriorityQueue } from "~/lib/prioritization";
+import { transitionLead } from "~/lib/pipeline";
+import { VALID_TRANSITIONS } from "~/lib/pipeline-transitions";
 import {
   CALL_OUTCOME_VALUES,
   CALL_OUTCOME_OPTIONS,
@@ -81,6 +83,49 @@ export function findOutreachPath(from: string, to: string): string[] | null {
     }
   }
   return null;
+}
+
+/** BFS over VALID_TRANSITIONS from the lead's current stage to `target`,
+ *  calling transitionLead hop by hop (the pipeline only allows one-step valid
+ *  transitions, so multi-hop stages need an explicit walk). Used to advance an
+ *  interested lead to the earliest contacted stage (seller_contacted). */
+export async function advancePipelineToStage(
+  leadId: string,
+  target: string,
+  operator: string,
+): Promise<{ success: boolean; error?: string; walked?: string[] }> {
+  try {
+    const curRows = (await sql`
+      SELECT COALESCE(NULLIF(pipeline_stage, ''), 'new_lead') AS pipeline_stage
+      FROM leads WHERE id = ${leadId}
+    `) as Array<{ pipeline_stage: string }>;
+    const cur = curRows[0]?.pipeline_stage || "new_lead";
+    if (cur === target) return { success: true, walked: [] };
+    // BFS for the shortest valid path.
+    const queue: Array<{ stage: string; path: string[] }> = [{ stage: cur, path: [] }];
+    const visited = new Set<string>([cur]);
+    while (queue.length > 0) {
+      const { stage, path: p } = queue.shift()!;
+      const nexts = VALID_TRANSITIONS[stage];
+      if (!nexts) continue;
+      for (const n of nexts) {
+        if (visited.has(n)) continue;
+        const newPath = [...p, n];
+        if (n === target) {
+          for (const hop of newPath) {
+            const res = await transitionLead(leadId, hop, operator, `Automated by call-outcome (interested)`);
+            if (!res.success) return { success: false, error: `Transition to ${hop} failed: ${res.error}`, walked: newPath.slice(0, 1) };
+          }
+          return { success: true, walked: newPath };
+        }
+        visited.add(n);
+        queue.push({ stage: n, path: newPath });
+      }
+    }
+    return { success: false, error: `No valid pipeline path from ${cur} to ${target}` };
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : "Failed to advance pipeline stage" };
+  }
 }
 
 export interface LogCallOutcomeInput {
@@ -156,13 +201,14 @@ export async function logCallOutcome(
     // Load the lead's current state.
     const rows = (await sql`
       SELECT id, outreach_status, dnc_flag, do_not_mail, opted_out,
-             invalid_contact, wrong_number, contactable, score, priority_queue,
-             score_factors
+             invalid_contact, wrong_number, contactable, phone,
+             pipeline_stage, deal_potential, score, priority_queue, score_factors
       FROM leads WHERE id = ${leadId}
     `) as Array<Record<string, unknown>>;
     if (!rows.length) return { success: false, error: "Lead not found" };
     const lead = rows[0];
     const current = (lead.outreach_status as string) || "new";
+    const leadPhone = (lead.phone as string) || null;
 
     // Compliance: never log outcomes on an already-terminal lead (further
     // contact is not permitted — the state machine's terminals are absorbing).
@@ -196,9 +242,24 @@ export async function logCallOutcome(
       cursor = hop;
     }
 
+    // 1b. Interested → advance the DEAL pipeline to the earliest contacted
+    //     stage (seller_contacted), walking the valid-transitions map hop by hop.
+    if (input.outcome === "interested") {
+      await advancePipelineToStage(leadId, "seller_contacted", operator);
+    }
+
     // 2. Hard suppression for suppression outcomes (engages the B2 block).
     let suppressionApplied = false;
     if (option.suppression === "dnc") {
+      // Route through handleOptOut (the compliant opt-out path): sets opted_out,
+      // writes the consent record + inbound audit. Then set the DNC flag, which
+      // is the phone-scoped do-not-call marker. NEVER a bare flag flip.
+      const opt = await handleOptOut(leadId, "voice", {
+        source: "owner-call-dnc",
+        operator,
+        detail: "Verbal do-not-call request recorded after manual owner call",
+      });
+      if (!opt.success) return { success: false, error: `DNC suppression failed: ${opt.error}` };
       await sql`UPDATE leads SET dnc_flag = 'DNC' WHERE id = ${leadId}`;
       suppressionApplied = true;
     } else if (option.suppression) {
@@ -209,6 +270,11 @@ export async function logCallOutcome(
       });
       if (!res.success) return { success: false, error: `Suppression failed: ${res.error}` };
       suppressionApplied = true;
+      // Wrong number hard-suppresses ALL channels: the number is dead, so the
+      // contact is invalid and no longer contactable for any future outreach.
+      if (option.suppression === "wrong_number") {
+        await sql`UPDATE leads SET invalid_contact = true, contactable = false WHERE id = ${leadId}`;
+      }
     }
 
     // 3. Seller fields (only when something real was captured).
@@ -226,6 +292,12 @@ export async function logCallOutcome(
     if (has(input.lienInfo)) fields.lienInfo = input.lienInfo;
     if (has(input.decisionMakers)) fields.decisionMakers = input.decisionMakers;
     if (has(input.dealPotential)) fields.dealPotential = input.dealPotential;
+    // Interested seller → flag deal potential (default high when unset) so the
+    // lead ranks for immediate follow-up.
+    if (input.outcome === "interested" && !has(input.dealPotential)) {
+      const curPotential = (lead.deal_potential as string | null) || null;
+      if (curPotential !== "high") fields.dealPotential = "high";
+    }
     if (has(input.nextAction)) fields.nextAction = input.nextAction;
     if (has(input.nextActionDue)) fields.nextActionDue = input.nextActionDue;
     if (!NO_CONTACT_SET.has(input.outcome)) {
@@ -275,13 +347,14 @@ export async function logCallOutcome(
       WHERE id = ${leadId}
     `;
 
-    // 6. The call-outcome audit row (channel='call_outcome').
+    // 6. The call-outcome audit row (channel='voice' / direction='outbound').
     await logOutreachAudit({
       leadId,
-      channel: "call_outcome",
-      direction: "internal",
-      status: "received",
-      reason: `Call outcome logged: ${option.label} (${input.outcome})`,
+      channel: "voice",
+      direction: "outbound",
+      status: input.outcome,
+      reason: input.sellerSummary || `Call outcome logged: ${option.label} (${input.outcome})`,
+      contactValue: leadPhone || undefined,
       contentPreview: [
         `outcome:${input.outcome}`,
         persisted.length ? `fields: ${persisted.join(", ")}` : "",

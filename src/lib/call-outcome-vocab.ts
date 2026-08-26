@@ -11,7 +11,10 @@
 import type { OutreachStatus } from "~/lib/outreach-status-map";
 
 export const CALL_OUTCOME_VALUES = [
+  "answered",
+  "voicemail",
   "no_answer",
+  "interested",
   "contacted",
   "connected",
   "qualified",
@@ -53,6 +56,27 @@ export const CALL_OUTCOME_OPTIONS: CallOutcomeOption[] = [
     toStatus: "contact_attempted",
     terminal: false,
     description: "Call rang, nobody picked up. Attempt logged; schedule a call-back.",
+  },
+  {
+    value: "answered",
+    label: "Answered",
+    toStatus: "connected",
+    terminal: false,
+    description: "Someone answered the call. Reached the owner/party.",
+  },
+  {
+    value: "voicemail",
+    label: "Voicemail left",
+    toStatus: "contact_attempted",
+    terminal: false,
+    description: "Reached voicemail; left a message. Attempt logged; schedule a call-back.",
+  },
+  {
+    value: "interested",
+    label: "Interested / wants to talk",
+    toStatus: "connected",
+    terminal: false,
+    description: "Owner is interested in selling. Advance pipeline + schedule follow-up.",
   },
   {
     value: "contacted",
